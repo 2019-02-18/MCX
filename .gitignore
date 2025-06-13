@@ -1,0 +1,20 @@
+mcp-feedback-enhanced/
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv*/
+venv*/
+
+# Logs
+*.log
+
+#Others
+.DS_Store
+
+.cursor/rules/
+uv.lock
+.mcp_feedback_settings.json
+test_reports/

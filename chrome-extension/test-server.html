@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP服务器连接测试</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .status.disconnected {
+            background-color: #ffebee;
+            color: #c62828;
+            border: 1px solid #ef5350;
+        }
+        .status.connecting {
+            background-color: #fff3e0;
+            color: #ef6c00;
+            border: 1px solid #ff9800;
+        }
+        .status.connected {
+            background-color: #e8f5e8;
+            color: #2e7d32;
+            border: 1px solid #4caf50;
+        }
+        .controls {
+            margin: 20px 0;
+            text-align: center;
+        }
+        button {
+            background-color: #1976d2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #1565c0;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 2px 0;
+        }
+        .log-entry.error {
+            color: #d32f2f;
+        }
+        .log-entry.success {
+            color: #388e3c;
+        }
+        .log-entry.info {
+            color: #1976d2;
+        }
+        .server-info {
+            background-color: #f0f7ff;
+            border: 1px solid #2196f3;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 MCP服务器连接测试</h1>
+        
+        <div id="connectionStatus" class="status disconnected">
+            ❌ 未连接到服务器
+        </div>
+        
+        <div class="server-info">
+            <h3>📊 服务器信息</h3>
+            <p><strong>地址:</strong> <span id="serverUrl">ws://127.0.0.1:8797</span></p>
+            <p><strong>状态:</strong> <span id="serverStatus">未知</span></p>
+            <p><strong>连接时间:</strong> <span id="connectionTime">-</span></p>
+            <p><strong>消息计数:</strong> 发送 <span id="sentCount">0</span> | 接收 <span id="receivedCount">0</span></p>
+        </div>
+        
+        <div class="controls">
+            <button id="connectBtn" onclick="connectToServer()">🔗 连接服务器</button>
+            <button id="disconnectBtn" onclick="disconnectFromServer()" disabled>🔌 断开连接</button>
+            <button onclick="sendTestMessage()" id="testBtn" disabled>📤 发送测试消息</button>
+            <button onclick="clearLog()">🗑️ 清空日志</button>
+        </div>
+        
+        <div class="test-section">
+            <h3>🧪 连接诊断</h3>
+            <button onclick="testPortConnectivity()">🔍 测试端口连通性</button>
+            <button onclick="testDifferentPorts()">🔄 尝试其他端口</button>
+            <button onclick="checkFirewall()">🛡️ 检查防火墙</button>
+        </div>
+        
+        <div class="log" id="logContainer">
+            <div class="log-entry info">📋 等待连接...</div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let sentCount = 0;
+        let receivedCount = 0;
+        let connectionStartTime = null;
+        
+        const defaultPorts = [8797, 8795, 8796, 3000, 3001, 8080, 8081];
+        let currentPortIndex = 0;
+        
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `[${timestamp}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        function updateStatus(status, message) {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.className = `status ${status}`;
+            statusEl.innerHTML = message;
+            
+            document.getElementById('serverStatus').textContent = status;
+            
+            // 更新按钮状态
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const testBtn = document.getElementById('testBtn');
+            
+            if (status === 'connected') {
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                testBtn.disabled = false;
+            } else {
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                testBtn.disabled = true;
+            }
+        }
+        
+        function updateCounts() {
+            document.getElementById('sentCount').textContent = sentCount;
+            document.getElementById('receivedCount').textContent = receivedCount;
+        }
+        
+        function connectToServer() {
+            const url = document.getElementById('serverUrl').textContent;
+            log(`🔄 尝试连接到 ${url}...`, 'info');
+            updateStatus('connecting', '🔄 正在连接...');
+            
+            try {
+                ws = new WebSocket(url);
+                connectionStartTime = new Date();
+                
+                ws.onopen = function(event) {
+                    log('✅ WebSocket连接已建立', 'success');
+                    updateStatus('connected', '✅ 已连接到服务器');
+                    document.getElementById('connectionTime').textContent = connectionStartTime.toLocaleTimeString();
+                    
+                    // 发送初始化消息
+                    sendMessage({
+                        action: 'init',
+                        source: 'test-page',
+                        timestamp: new Date().toISOString()
+                    });
+                };
+                
+                ws.onmessage = function(event) {
+                    receivedCount++;
+                    updateCounts();
+                    
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📨 收到消息: ${JSON.stringify(data, null, 2)}`, 'success');
+                    } catch (e) {
+                        log(`📨 收到原始消息: ${event.data}`, 'info');
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    log(`🔌 连接已关闭 (代码: ${event.code}, 原因: ${event.reason || '未知'})`, 'error');
+                    updateStatus('disconnected', '❌ 连接已断开');
+                    document.getElementById('connectionTime').textContent = '-';
+                };
+                
+                ws.onerror = function(error) {
+                    log(`❌ WebSocket错误: ${error.message || '连接失败'}`, 'error');
+                    updateStatus('disconnected', '❌ 连接失败');
+                };
+                
+            } catch (error) {
+                log(`❌ 创建WebSocket失败: ${error.message}`, 'error');
+                updateStatus('disconnected', '❌ 连接失败');
+            }
+        }
+        
+        function disconnectFromServer() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                log('🔌 手动断开连接', 'info');
+            }
+        }
+        
+        function sendMessage(data) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(data));
+                sentCount++;
+                updateCounts();
+                log(`📤 发送消息: ${JSON.stringify(data, null, 2)}`, 'info');
+            } else {
+                log('❌ 无法发送消息: WebSocket未连接', 'error');
+            }
+        }
+        
+        function sendTestMessage() {
+            sendMessage({
+                action: 'test',
+                message: 'Hello from test page!',
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        function clearLog() {
+            document.getElementById('logContainer').innerHTML = '';
+            sentCount = 0;
+            receivedCount = 0;
+            updateCounts();
+        }
+        
+        function testPortConnectivity() {
+            log('🔍 开始端口连通性测试...', 'info');
+            
+            const testPorts = [8795, 8796, 8797, 3000, 8080];
+            let testIndex = 0;
+            
+            function testNextPort() {
+                if (testIndex >= testPorts.length) {
+                    log('❌ 所有端口测试完成，未找到可用服务器', 'error');
+                    return;
+                }
+                
+                const port = testPorts[testIndex];
+                const testUrl = `ws://localhost:${port}`;
+                log(`🔍 测试端口 ${port}...`, 'info');
+                
+                const testWs = new WebSocket(testUrl);
+                
+                const timeout = setTimeout(() => {
+                    testWs.close();
+                    log(`⏰ 端口 ${port} 连接超时`, 'error');
+                    testIndex++;
+                    testNextPort();
+                }, 3000);
+                
+                testWs.onopen = function() {
+                    clearTimeout(timeout);
+                    log(`✅ 端口 ${port} 可用!`, 'success');
+                    document.getElementById('serverUrl').textContent = testUrl;
+                    testWs.close();
+                };
+                
+                testWs.onerror = function() {
+                    clearTimeout(timeout);
+                    log(`❌ 端口 ${port} 不可用`, 'error');
+                    testIndex++;
+                    testNextPort();
+                };
+            }
+            
+            testNextPort();
+        }
+        
+        function testDifferentPorts() {
+            const ports = [8795, 8796, 8797, 3000, 3001, 8080, 8081, 9000];
+            log(`🔄 测试多个端口: ${ports.join(', ')}`, 'info');
+            
+            ports.forEach(port => {
+                setTimeout(() => {
+                    const testUrl = `ws://localhost:${port}`;
+                    const testWs = new WebSocket(testUrl);
+                    
+                    testWs.onopen = function() {
+                        log(`✅ 发现可用端口: ${port}`, 'success');
+                        document.getElementById('serverUrl').textContent = testUrl;
+                        testWs.close();
+                    };
+                    
+                    testWs.onerror = function() {
+                        log(`❌ 端口 ${port} 不可用`, 'error');
+                    };
+                }, Math.random() * 1000);
+            });
+        }
+        
+        function checkFirewall() {
+            log('🛡️ 防火墙检查提示:', 'info');
+            log('1. 检查Windows防火墙是否阻止了端口8795', 'info');
+            log('2. 检查杀毒软件是否阻止了WebSocket连接', 'info');
+            log('3. 确认MCP服务器正在运行 (node mcp-server.js)', 'info');
+            log('4. 尝试在命令行运行: netstat -an | findstr 8795', 'info');
+        }
+        
+        // 页面加载时自动尝试连接
+        window.onload = function() {
+            log('📋 页面已加载，准备测试连接', 'info');
+            setTimeout(() => {
+                connectToServer();
+            }, 1000);
+        };
+    </script>
+</body>
+</html> 

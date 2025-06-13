@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Feedback Collector</title>
+    <link rel="stylesheet" href="sidepanel.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f0f0;
+            color: #333;
+            height: 100vh;
+            overflow-y: auto;
+        }
+        
+        .container {
+            padding: 0;
+            max-width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: #0078d4;
+            color: white;
+            padding: 12px 16px;
+            border-bottom: 1px solid #106ebe;
+            flex-shrink: 0;
+        }
+        
+        .header h1 {
+            font-size: 16px;
+            font-weight: 400;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .header .status-badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 8px;
+            border-radius: 2px;
+            font-size: 11px;
+            margin-left: auto;
+        }
+        
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            background: white;
+        }
+        
+        .section {
+            border-bottom: 1px solid #e1e1e1;
+        }
+        
+        .section-header {
+            background: #f8f8f8;
+            padding: 12px 16px;
+            border-bottom: 1px solid #e1e1e1;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .section-header:hover {
+            background: #f0f0f0;
+        }
+        
+        .section-header h3 {
+            font-size: 14px;
+            font-weight: 400;
+            color: #333;
+            margin: 0;
+        }
+        
+        .section-header .chevron {
+            font-size: 12px;
+            transition: transform 0.2s;
+        }
+        
+        .section-header.collapsed .chevron {
+            transform: rotate(-90deg);
+        }
+        
+        .section-content {
+            padding: 16px;
+            display: block;
+        }
+        
+        .section-content.collapsed {
+            display: none;
+        }
+        
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 2px;
+            font-size: 12px;
+            font-weight: 400;
+        }
+        
+        .status-connected {
+            background: #dff6dd;
+            color: #107c10;
+            border: 1px solid #107c10;
+        }
+        
+        .status-disconnected {
+            background: #fde7e9;
+            color: #d13438;
+            border: 1px solid #d13438;
+        }
+        
+        .status-connecting {
+            background: #fff4ce;
+            color: #797673;
+            border: 1px solid #797673;
+        }
+        
+        .form-group {
+            margin-bottom: 12px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-weight: 400;
+            margin-bottom: 4px;
+            color: #323130;
+            font-size: 14px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #8a8886;
+            border-radius: 2px;
+            font-size: 14px;
+            background: white;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #0078d4;
+        }
+        
+        .button {
+            background: #0078d4;
+            color: white;
+            border: 1px solid #0078d4;
+            padding: 8px 16px;
+            border-radius: 2px;
+            font-size: 14px;
+            font-weight: 400;
+            cursor: pointer;
+            transition: background-color 0.1s;
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        
+        .button:hover {
+            background: #106ebe;
+            border-color: #106ebe;
+        }
+        
+        .button:disabled {
+            background: #f3f2f1;
+            color: #a19f9d;
+            border-color: #edebe9;
+            cursor: not-allowed;
+        }
+        
+        .button-secondary {
+            background: white;
+            color: #323130;
+            border: 1px solid #8a8886;
+        }
+        
+        .button-secondary:hover {
+            background: #f3f2f1;
+        }
+        
+        .button-success {
+            background: #107c10;
+            border-color: #107c10;
+        }
+        
+        .button-success:hover {
+            background: #0e6e0e;
+        }
+        
+        .button-danger {
+            background: #d13438;
+            border-color: #d13438;
+        }
+        
+        .button-danger:hover {
+            background: #b52e31;
+        }
+        
+        .button.active {
+            background: #0e6e0e !important;
+            border-color: #0e6e0e !important;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(14, 110, 14, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(14, 110, 14, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(14, 110, 14, 0); }
+        }
+        
+        .button-small {
+            padding: 4px 12px;
+            font-size: 12px;
+            width: auto;
+            margin: 0 4px 0 0;
+        }
+        
+        .feedback-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        
+        .feedback-actions .button {
+            flex: 1;
+            min-width: 120px;
+        }
+        
+        .history-item {
+            background: #faf9f8;
+            border: 1px solid #edebe9;
+            border-radius: 2px;
+            padding: 12px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        
+        .history-item .timestamp {
+            color: #605e5c;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+        
+        .history-item .content {
+            color: #323130;
+            line-height: 1.4;
+        }
+        
+        .history-item .page-info {
+            color: #0078d4;
+            font-size: 11px;
+            margin-top: 4px;
+            text-decoration: none;
+        }
+        
+        .notification {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            padding: 8px 16px;
+            border-radius: 2px;
+            color: white;
+            font-size: 14px;
+            font-weight: 400;
+            z-index: 1000;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.2s ease;
+            border: 1px solid;
+        }
+        
+        .notification.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .notification.success {
+            background: #107c10;
+            border-color: #107c10;
+        }
+        
+        .notification.error {
+            background: #d13438;
+            border-color: #d13438;
+        }
+        
+        .notification.info {
+            background: #0078d4;
+            border-color: #0078d4;
+        }
+        
+        .debug-info {
+            background: #faf9f8;
+            border: 1px solid #edebe9;
+            border-radius: 2px;
+            padding: 12px;
+            margin: 16px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+            color: #323130;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+        }
+        
+        .debug-info.show {
+            display: block;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #f3f2f1;
+            border-top: 2px solid #0078d4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 8px 12px;
+            border: 1px solid #8a8886;
+            border-radius: 2px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            background: white;
+        }
+        
+        .textarea:focus {
+            outline: none;
+            border-color: #0078d4;
+        }
+        
+        .file-input {
+            margin-top: 8px;
+        }
+        
+        .file-input input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px dashed #8a8886;
+            border-radius: 2px;
+            background: #faf9f8;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .file-input input[type="file"]:hover {
+            border-color: #0078d4;
+            background: #f3f2f1;
+        }
+        
+        .image-upload-container {
+            margin-top: 8px;
+        }
+        
+        .paste-area {
+            border: 2px dashed #d2d0ce;
+            border-radius: 4px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        
+        .paste-area:hover {
+            border-color: #0078d4;
+        }
+        
+        .paste-area.drag-over {
+            border-color: #0078d4;
+            background-color: #f3f9ff;
+        }
+        
+        .paste-hint {
+            color: #605e5c;
+            font-size: 13px;
+        }
+        
+        .image-previews {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .image-preview-item {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .preview-image {
+            max-width: 120px;
+            max-height: 120px;
+            border: 1px solid #edebe9;
+            border-radius: 4px;
+            object-fit: cover;
+        }
+        
+        .image-remove-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #d13438;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .image-remove-btn:hover {
+            background: #b52e31;
+        }
+        
+        .image-info {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 4px 8px;
+            font-size: 11px;
+            border-bottom-left-radius: 4px;
+            border-bottom-right-radius: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .paste-area.drag-over {
+            border-color: #007bff;
+            background-color: #e3f2fd;
+            transform: scale(1.02);
+        }
+        
+        .paste-area.drag-over .paste-hint {
+            color: #007bff;
+            font-weight: bold;
+        }
+        
+        .ai-result {
+            background: #f3f2f1;
+            border: 1px solid #edebe9;
+            border-radius: 2px;
+            padding: 12px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        
+        .ai-result .timestamp {
+            color: #605e5c;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+        
+        .ai-result .content {
+            color: #323130;
+            line-height: 1.4;
+        }
+        
+        .empty-state {
+            text-align: center;
+            color: #605e5c;
+            font-style: italic;
+            padding: 20px;
+        }
+        
+        /* 通知样式 */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 16px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 9999;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            max-width: 300px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .notification.show {
+            transform: translateX(0);
+        }
+        
+        .notification.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .notification.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .notification.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .notification.warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        @media (max-width: 400px) {
+            .feedback-actions {
+                flex-direction: column;
+            }
+            
+            .feedback-actions .button {
+                min-width: auto;
+            }
+            
+            .notification {
+                top: 10px;
+                right: 10px;
+                left: 10px;
+                max-width: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                MCP Feedback Collector
+                <span class="loading hidden" id="headerLoading"></span>
+            </h1>
+            <!-- <div class="status-badge" id="headerStatus">未连接</div> -->
+        </div>
+        
+        <div class="main-content">
+            <!-- 连接状态 -->
+            <div class="section">
+                <div class="section-header" data-section="connection">
+                    <h3>连接状态</h3>
+                    <span class="chevron">▼</span>
+                </div>
+                <div class="section-content" id="connectionSection">
+                    <div class="status-indicator status-disconnected" id="connectionStatus">
+                        <span>●</span>
+                        <span id="statusText">未连接</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="serverUrl">MCP服务器地址:</label>
+                        <input type="text" id="serverUrl" placeholder="MCP服务器地址" value="ws://127.0.0.1:8797">
+                    </div>
+                    <div class="feedback-actions">
+                        <button id="connectBtn" class="button">连接</button>
+                        <button id="disconnectBtn" class="button button-secondary" disabled>断开</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 反馈收集 -->
+            <div class="section">
+                <div class="section-header" data-section="feedback">
+                    <h3>反馈收集</h3>
+                    <span class="chevron">▼</span>
+                </div>
+                <div class="section-content" id="feedbackSection">
+                    <div class="feedback-actions">
+                        <button class="button button-secondary button-small" id="captureElementBtn" disabled>捕获元素</button>
+                        <button class="button button-secondary button-small" id="takeScreenshotBtn" disabled>截取当前页</button>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="feedbackText">反馈内容:</label>
+                        <textarea class="textarea" id="feedbackText" placeholder="请输入您的反馈内容..."></textarea>
+                    </div>
+                    
+                    <div class="file-input">
+                        <label for="imageUpload">上传图片:</label>
+                        <div class="image-upload-container">
+                            <input type="file" id="imageUpload" accept="image/*" multiple>
+                            <div class="paste-area" id="pasteArea">
+                                <span class="paste-hint">点击选择文件或直接粘贴图片 (Ctrl+V)</span>
+                            </div>
+                        </div>
+                        <div class="image-previews" id="imagePreviews"></div>
+                    </div>
+                    
+                    <button class="button" id="submitFeedbackBtn" disabled>提交反馈</button>
+                </div>
+            </div>
+            
+            <!-- AI 结果展示 -->
+            <div class="section">
+                <div class="section-header" data-section="results">
+                    <h3>AI 处理结果</h3>
+                    <span class="chevron">▼</span>
+                </div>
+                <div class="section-content" id="resultsSection">
+                    <div id="aiResults">
+                        <div class="empty-state">暂无 AI 处理结果</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 历史记录 -->
+            <div class="section">
+                <div class="section-header" data-section="history">
+                    <h3>历史记录</h3>
+                    <span class="chevron">▼</span>
+                </div>
+                <div class="section-content" id="historySection">
+                    <div id="historyList">
+                        <div class="empty-state">暂无历史记录</div>
+                    </div>
+                    <button class="button button-secondary" id="clearHistoryBtn">清空历史</button>
+                </div>
+            </div>
+            
+            <!-- 设置 -->
+            <div class="section">
+                <div class="section-header" data-section="settings">
+                    <h3>设置</h3>
+                    <span class="chevron">▼</span>
+                </div>
+                <div class="section-content" id="settingsSection">
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center;">
+                            <input style="width: 16px; height: 16px;" type="checkbox" id="autoConnect"> 自动连接
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label for="maxHistory">最大历史记录数:</label>
+                        <input type="number" id="maxHistory" value="50" min="1" max="200">
+                    </div>
+                    <button class="button button-secondary" id="saveSettingsBtn">保存设置</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 调试信息 -->
+        <div class="debug-info" id="debugInfo"></div>
+    </div>
+    
+    <!-- 通知 -->
+    <div class="notification" id="notification"></div>
+    
+    <script src="sidepanel-new.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+{
+  "name": "mcp-chrome-feedback",
+  "version": "1.0.0",
+  "description": "MCP tool for interactive feedback collection through Chrome extension",
+  "main": "build/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node build/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "feedback",
+    "chrome-extension",
+    "interactive"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0",
+    "ws": "^8.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.0.0"
+  },
+  "bin": {
+    "mcp-chrome-feedback": "build/index.js"
+  },
+  "files": [
+    "build/**/*",
+    "chrome-extension/**/*",
+    "README.md"
+  ]
+}

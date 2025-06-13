@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chrome扩展连接测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Chrome扩展连接测试</h1>
+        
+        <div class="test-section">
+            <h3>1. 基本连接测试</h3>
+            <div>
+                <label>服务器地址:</label>
+                <input type="text" id="serverUrl" value="ws://127.0.0.1:8797">
+            </div>
+            <button onclick="testBasicConnection()">测试基本连接</button>
+            <div id="basicStatus" class="status info">等待测试...</div>
+        </div>
+        
+        <div class="test-section">
+            <h3>2. HTTP状态检查</h3>
+            <button onclick="testHttpStatus()">检查HTTP状态</button>
+            <div id="httpStatus" class="status info">等待测试...</div>
+        </div>
+        
+        <div class="test-section">
+            <h3>3. WebSocket连接测试</h3>
+            <button onclick="testWebSocketConnection()">测试WebSocket连接</button>
+            <button onclick="sendTestMessage()" disabled id="testMsgBtn">发送测试消息</button>
+            <button onclick="disconnectWebSocket()" disabled id="disconnectBtn">断开连接</button>
+            <div id="wsStatus" class="status info">等待测试...</div>
+        </div>
+        
+        <div class="test-section">
+            <h3>4. 扩展功能测试</h3>
+            <button onclick="testExtensionFunctions()">测试扩展功能</button>
+            <div id="extensionStatus" class="status info">等待测试...</div>
+        </div>
+        
+        <div class="test-section">
+            <h3>5. 调试日志</h3>
+            <button onclick="clearLog()">清空日志</button>
+            <div id="logContainer" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let testResults = {};
+        
+        function log(message) {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            logContainer.innerHTML += `[${timestamp}] ${message}\n`;
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('logContainer').innerHTML = '';
+        }
+        
+        function updateStatus(elementId, status, message) {
+            const element = document.getElementById(elementId);
+            element.className = `status ${status}`;
+            element.textContent = message;
+        }
+        
+        async function testBasicConnection() {
+            const serverUrl = document.getElementById('serverUrl').value;
+            log(`开始测试基本连接: ${serverUrl}`);
+            
+            try {
+                // 解析URL
+                const url = new URL(serverUrl);
+                const httpUrl = `http://${url.host}/status`;
+                
+                log(`尝试连接到: ${httpUrl}`);
+                
+                const response = await fetch(httpUrl);
+                const data = await response.json();
+                
+                log(`连接成功，服务器状态: ${JSON.stringify(data)}`);
+                updateStatus('basicStatus', 'success', `连接成功! 客户端: ${data.clients}, 反馈: ${data.feedbackCount}`);
+                testResults.basic = true;
+                
+            } catch (error) {
+                log(`连接失败: ${error.message}`);
+                updateStatus('basicStatus', 'error', `连接失败: ${error.message}`);
+                testResults.basic = false;
+            }
+        }
+        
+        async function testHttpStatus() {
+            const serverUrl = document.getElementById('serverUrl').value;
+            const url = new URL(serverUrl);
+            const httpUrl = `http://${url.host}/status`;
+            
+            log(`检查HTTP状态: ${httpUrl}`);
+            
+            try {
+                const response = await fetch(httpUrl);
+                const data = await response.json();
+                
+                log(`HTTP状态检查成功: ${JSON.stringify(data)}`);
+                updateStatus('httpStatus', 'success', `HTTP正常: ${data.status}`);
+                testResults.http = true;
+                
+            } catch (error) {
+                log(`HTTP状态检查失败: ${error.message}`);
+                updateStatus('httpStatus', 'error', `HTTP失败: ${error.message}`);
+                testResults.http = false;
+            }
+        }
+        
+        function testWebSocketConnection() {
+            const serverUrl = document.getElementById('serverUrl').value;
+            log(`开始WebSocket连接测试: ${serverUrl}`);
+            
+            try {
+                ws = new WebSocket(serverUrl);
+                
+                ws.onopen = function(event) {
+                    log('WebSocket连接已建立');
+                    updateStatus('wsStatus', 'success', 'WebSocket连接成功');
+                    document.getElementById('testMsgBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = false;
+                    testResults.websocket = true;
+                    
+                    // 发送初始化消息
+                    ws.send(JSON.stringify({
+                        action: 'init',
+                        source: 'test-page',
+                        timestamp: new Date().toISOString()
+                    }));
+                };
+                
+                ws.onmessage = function(event) {
+                    const message = JSON.parse(event.data);
+                    log(`收到WebSocket消息: ${JSON.stringify(message)}`);
+                };
+                
+                ws.onclose = function(event) {
+                    log('WebSocket连接已关闭');
+                    updateStatus('wsStatus', 'info', 'WebSocket连接已关闭');
+                    document.getElementById('testMsgBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = true;
+                };
+                
+                ws.onerror = function(error) {
+                    log(`WebSocket错误: ${error}`);
+                    updateStatus('wsStatus', 'error', 'WebSocket连接错误');
+                    testResults.websocket = false;
+                };
+                
+            } catch (error) {
+                log(`WebSocket连接失败: ${error.message}`);
+                updateStatus('wsStatus', 'error', `WebSocket失败: ${error.message}`);
+                testResults.websocket = false;
+            }
+        }
+        
+        function sendTestMessage() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const testMessage = {
+                    action: 'test',
+                    message: 'Hello from test page',
+                    timestamp: new Date().toISOString()
+                };
+                
+                ws.send(JSON.stringify(testMessage));
+                log(`发送测试消息: ${JSON.stringify(testMessage)}`);
+            } else {
+                log('WebSocket未连接，无法发送消息');
+            }
+        }
+        
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                log('主动断开WebSocket连接');
+            }
+        }
+        
+        function testExtensionFunctions() {
+            log('开始测试扩展功能...');
+            
+            // 检查Chrome扩展API
+            if (typeof chrome !== 'undefined' && chrome.runtime) {
+                log('Chrome扩展API可用');
+                updateStatus('extensionStatus', 'success', 'Chrome扩展API正常');
+                
+                // 测试消息传递
+                chrome.runtime.sendMessage({
+                    action: 'getConnectionStatus'
+                }, (response) => {
+                    if (response) {
+                        log(`扩展状态: ${JSON.stringify(response)}`);
+                    } else {
+                        log('无法获取扩展状态');
+                    }
+                });
+                
+            } else {
+                log('Chrome扩展API不可用');
+                updateStatus('extensionStatus', 'error', 'Chrome扩展API不可用');
+            }
+        }
+        
+        // 页面加载完成后执行
+        window.addEventListener('load', function() {
+            log('页面加载完成，准备进行连接测试');
+            clearLog();
+            log('=== Chrome扩展连接测试开始 ===');
+        });
+    </script>
+</body>
+</html> 

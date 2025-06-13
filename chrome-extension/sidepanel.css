@@ -1,0 +1,622 @@
+/* Windows 10 Fluent Design 样式 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #323130;
+    background: #f3f2f1;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.container {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+}
+
+/* 头部样式 - Windows 10 标题栏风格 */
+.header {
+    background: #0078d4;
+    color: white;
+    padding: 12px 16px;
+    border-bottom: 1px solid #106ebe;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.logo-icon {
+    width: 16px;
+    height: 16px;
+    filter: brightness(0) invert(1);
+}
+
+.logo h1 {
+    font-size: 14px;
+    font-weight: 400;
+    margin: 0;
+}
+
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-connected .status-indicator {
+    background: #107c10;
+    animation: pulse 2s infinite;
+}
+
+.status-disconnected .status-indicator {
+    background: #d13438;
+}
+
+.status-connecting .status-indicator {
+    background: #ff8c00;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* 主内容区域 */
+.main-content {
+    flex: 1;
+    overflow-y: auto;
+    background: #faf9f8;
+}
+
+/* 区域样式 - Windows 10 卡片风格 */
+.section {
+    background: #ffffff;
+    margin: 8px;
+    border-radius: 2px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e1dfdd;
+}
+
+.section-header {
+    background: #f8f8f8;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e1dfdd;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: background-color 0.1s;
+}
+
+.section-header:hover {
+    background: #f3f2f1;
+}
+
+.section-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #323130;
+    margin: 0;
+}
+
+.section-header .chevron {
+    font-size: 12px;
+    color: #605e5c;
+    transition: transform 0.2s;
+}
+
+.section-header.collapsed .chevron {
+    transform: rotate(-90deg);
+}
+
+.section-content {
+    padding: 16px;
+    display: block;
+}
+
+.section-content.collapsed {
+    display: none;
+}
+
+/* 表单控件 - Windows 10 风格 */
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #323130;
+    font-size: 14px;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #8a8886;
+    border-radius: 2px;
+    font-size: 14px;
+    font-family: 'Segoe UI', sans-serif;
+    background: #ffffff;
+    transition: border-color 0.1s;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #0078d4;
+    box-shadow: inset 0 0 0 1px #0078d4;
+}
+
+.form-group input:disabled,
+.form-group textarea:disabled,
+.form-group select:disabled {
+    background: #f3f2f1;
+    color: #a19f9d;
+    border-color: #edebe9;
+}
+
+/* 按钮样式 - Windows 10 Fluent 风格 */
+.button {
+    background: #0078d4;
+    color: white;
+    border: 1px solid #0078d4;
+    padding: 8px 16px;
+    border-radius: 2px;
+    font-size: 14px;
+    font-weight: 400;
+    cursor: pointer;
+    transition: background-color 0.1s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+.button:hover:not(:disabled) {
+    background: #106ebe;
+    border-color: #106ebe;
+}
+
+.button:active:not(:disabled) {
+    background: #005a9e;
+    border-color: #005a9e;
+}
+
+.button:disabled {
+    background: #f3f2f1;
+    color: #a19f9d;
+    border-color: #edebe9;
+    cursor: not-allowed;
+}
+
+.button-secondary {
+    background: #ffffff;
+    color: #323130;
+    border: 1px solid #8a8886;
+}
+
+.button-secondary:hover:not(:disabled) {
+    background: #f3f2f1;
+    border-color: #323130;
+}
+
+.button-success {
+    background: #107c10;
+    border-color: #107c10;
+}
+
+.button-success:hover:not(:disabled) {
+    background: #0e6e0e;
+    border-color: #0e6e0e;
+}
+
+.button-danger {
+    background: #d13438;
+    border-color: #d13438;
+}
+
+.button-danger:hover:not(:disabled) {
+    background: #b52e31;
+    border-color: #b52e31;
+}
+
+.button-warning {
+    background: #ff8c00;
+    border-color: #ff8c00;
+    color: white;
+}
+
+.button-warning:hover:not(:disabled) {
+    background: #e67e00;
+    border-color: #e67e00;
+}
+
+/* 按钮组 */
+.button-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.button-group .button {
+    flex: 1;
+}
+
+/* 状态指示器 */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.status-connected {
+    background: #dff6dd;
+    color: #107c10;
+    border: 1px solid #107c10;
+}
+
+.status-disconnected {
+    background: #fde7e9;
+    color: #d13438;
+    border: 1px solid #d13438;
+}
+
+.status-connecting {
+    background: #fff4ce;
+    color: #8a8886;
+    border: 1px solid #8a8886;
+}
+
+/* 图片上传区域 */
+.image-upload-area {
+    border: 2px dashed #8a8886;
+    border-radius: 2px;
+    padding: 24px;
+    text-align: center;
+    background: #faf9f8;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.image-upload-area:hover {
+    border-color: #0078d4;
+    background: #f3f2f1;
+}
+
+.image-upload-area.drag-over {
+    border-color: #0078d4;
+    background: #deecf9;
+}
+
+.image-upload-text {
+    color: #605e5c;
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.image-upload-hint {
+    color: #8a8886;
+    font-size: 12px;
+}
+
+/* 图片预览 */
+.image-previews {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.image-preview-item {
+    position: relative;
+    border: 1px solid #e1dfdd;
+    border-radius: 2px;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+.preview-image {
+    width: 100%;
+    height: 80px;
+    object-fit: cover;
+    display: block;
+}
+
+.image-info {
+    padding: 8px;
+    font-size: 12px;
+    color: #605e5c;
+    background: #faf9f8;
+    border-top: 1px solid #e1dfdd;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.image-remove-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+}
+
+.image-remove-btn:hover {
+    background: rgba(0, 0, 0, 0.9);
+}
+
+/* 历史记录 */
+.history-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.history-item {
+    padding: 12px;
+    border-bottom: 1px solid #e1dfdd;
+    background: #ffffff;
+}
+
+.history-item:last-child {
+    border-bottom: none;
+}
+
+.history-item:hover {
+    background: #f3f2f1;
+}
+
+.history-item .timestamp {
+    font-size: 12px;
+    color: #8a8886;
+    margin-bottom: 4px;
+}
+
+.history-item .content {
+    font-size: 14px;
+    color: #323130;
+    line-height: 1.4;
+}
+
+/* 通知 */
+.notification {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    padding: 12px 16px;
+    border-radius: 2px;
+    font-size: 14px;
+    font-weight: 400;
+    z-index: 1000;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    max-width: 300px;
+}
+
+.notification.show {
+    transform: translateX(0);
+}
+
+.notification.success {
+    background: #dff6dd;
+    color: #107c10;
+    border: 1px solid #107c10;
+    }
+    
+.notification.error {
+    background: #fde7e9;
+    color: #d13438;
+    border: 1px solid #d13438;
+    }
+    
+.notification.info {
+    background: #deecf9;
+    color: #0078d4;
+    border: 1px solid #0078d4;
+    }
+    
+.notification.warning {
+    background: #fff4ce;
+    color: #8a8886;
+    border: 1px solid #8a8886;
+    }
+    
+/* 空状态 */
+.empty-state {
+    text-align: center;
+    padding: 32px 16px;
+    color: #8a8886;
+    font-size: 14px;
+    }
+    
+/* 加载状态 */
+.loading {
+    display: inline-flex;
+    align-items: center;
+        gap: 8px;
+    color: #8a8886;
+    font-size: 14px;
+}
+
+.loading::before {
+    content: '';
+    width: 16px;
+    height: 16px;
+    border: 2px solid #e1dfdd;
+    border-top: 2px solid #0078d4;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+    width: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f3f2f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c8c6c4;
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a19f9d;
+}
+
+/* 响应式设计 */
+@media (max-width: 400px) {
+    .container {
+        margin: 0;
+    }
+    
+    .section {
+        margin: 4px;
+}
+
+    .section-content {
+        padding: 12px;
+    }
+    
+    .button-group {
+        flex-direction: column;
+    }
+    
+    .image-previews {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        gap: 8px;
+    }
+}
+
+/* 工具提示 */
+.tooltip {
+    position: relative;
+    cursor: help;
+}
+
+.tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #323130;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 2px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 1000;
+}
+
+        .tooltip:hover::after {
+            opacity: 1;
+        }
+        
+/* 激活状态的按钮 */
+        .button.active {
+    background: #005a9e;
+    border-color: #005a9e;
+}
+
+.button.active:hover {
+    background: #004578;
+    border-color: #004578;
+}
+
+/* 特殊按钮样式 */
+.btn-capture {
+    background: #0078d4;
+    border-color: #0078d4;
+}
+
+.btn-screenshot {
+    background: #107c10;
+    border-color: #107c10;
+}
+
+.btn-ai {
+    background: #8764b8;
+    border-color: #8764b8;
+        }
+        
+.btn-execute {
+    background: #ff8c00;
+    border-color: #ff8c00;
+}
+
+/* 调试信息 */
+.debug-info {
+    background: #323130;
+    color: #ffffff;
+    padding: 12px;
+    border-radius: 2px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 16px;
+    display: none;
+}
+
+.debug-info.show {
+    display: block;
+        }
