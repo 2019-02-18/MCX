@@ -4,6 +4,7 @@ class MCPFeedbackSidePanel {
         this.mcpSocket = null;
         this.feedbackHistory = [];
         this.selectedFiles = [];
+        this.currentFeedbackRequest = null;  // 存储当前的AI反馈请求
         
         this.settings = {
             serverUrl: 'ws://127.0.0.1:8797',
@@ -240,186 +241,118 @@ class MCPFeedbackSidePanel {
         
         const { feedbackId, summary, timeout } = data;
         
-        // 显示反馈收集界面
-        this.showFeedbackModal(feedbackId, summary, timeout);
-    }
-
-    showFeedbackModal(feedbackId, summary, timeout) {
-        // 移除现有的反馈模态框
-        const existingModal = document.getElementById('mcp-feedback-modal');
-        if (existingModal) {
-            existingModal.remove();
-        }
-
-        // 创建反馈模态框
-        const modal = document.createElement('div');
-        modal.id = 'mcp-feedback-modal';
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
-            z-index: 10000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        `;
-
-        modal.innerHTML = `
-            <div style="
-                background: white;
-                border-radius: 12px;
-                padding: 30px;
-                max-width: 600px;
-                width: 100%;
-                max-height: 80vh;
-                overflow-y: auto;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            ">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2 style="margin: 0; color: #333; font-size: 1.5em;">🤖 AI 请求反馈</h2>
-                    <button onclick="this.closest('#mcp-feedback-modal').remove()" style="
-                        background: none;
-                        border: none;
-                        font-size: 24px;
-                        cursor: pointer;
-                        color: #999;
-                        padding: 0;
-                        width: 30px;
-                        height: 30px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                    ">×</button>
-                </div>
-                
-                <div style="
-                    background: #f8f9fa;
-                    padding: 20px;
-                    border-radius: 8px;
-                    margin-bottom: 20px;
-                    border-left: 4px solid #007bff;
-                ">
-                    <h3 style="margin: 0 0 10px 0; color: #333; font-size: 1.1em;">AI 工作摘要:</h3>
-                    <div style="color: #666; line-height: 1.6; white-space: pre-wrap;">${summary}</div>
-                </div>
-                
-                <div style="margin-bottom: 20px;">
-                    <label style="display: block; margin-bottom: 8px; font-weight: bold; color: #333;">
-                        您的反馈:
-                    </label>
-                    <textarea 
-                        id="mcp-feedback-text-${feedbackId}"
-                        style="
-                            width: 100%;
-                            min-height: 120px;
-                            padding: 12px;
-                            border: 2px solid #ddd;
-                            border-radius: 6px;
-                            font-family: inherit;
-                            font-size: 14px;
-                            resize: vertical;
-                            box-sizing: border-box;
-                        "
-                        placeholder="请输入您的反馈、建议或问题..."
-                    ></textarea>
-                </div>
-                
-                <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                    <button 
-                        onclick="window.mcpFeedbackPanel.submitModalFeedback('${feedbackId}', '')"
-                        style="
-                            padding: 10px 20px;
-                            border: 1px solid #ddd;
-                            background: #f8f9fa;
-                            border-radius: 6px;
-                            cursor: pointer;
-                            font-size: 14px;
-                        "
-                    >
-                        跳过
-                    </button>
-                    <button 
-                        onclick="window.mcpFeedbackPanel.submitModalFeedback('${feedbackId}')"
-                        style="
-                            padding: 10px 20px;
-                            border: none;
-                            background: #007bff;
-                            color: white;
-                            border-radius: 6px;
-                            cursor: pointer;
-                            font-size: 14px;
-                        "
-                    >
-                        提交反馈
-                    </button>
-                </div>
-                
-                <div style="margin-top: 15px; font-size: 12px; color: #999; text-align: center;">
-                    超时时间: ${timeout} 秒
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(modal);
-
-        // 聚焦到文本框
+        // 存储当前反馈请求信息
+        this.currentFeedbackRequest = {
+            feedbackId,
+            summary,
+            timeout,
+            timestamp: new Date().toISOString()
+        };
+        
+        // 在AI处理信息区域显示消息
+        this.displayAIMessage(summary, feedbackId);
+        
+        // 启用反馈提交功能
+        this.enableFeedbackSubmission();
+        
+        // 显示通知
+        this.showNotification('收到AI反馈请求，请在下方提交您的反馈', 'info');
+        
+        // 设置超时自动清除
         setTimeout(() => {
-            const textarea = document.getElementById(`mcp-feedback-text-${feedbackId}`);
-            if (textarea) {
-                textarea.focus();
-            }
-        }, 100);
-
-        // 设置超时自动关闭
-        setTimeout(() => {
-            const modal = document.getElementById('mcp-feedback-modal');
-            if (modal) {
-                modal.remove();
+            if (this.currentFeedbackRequest && this.currentFeedbackRequest.feedbackId === feedbackId) {
+                this.clearCurrentFeedbackRequest();
+                this.showNotification('反馈请求已超时', 'warning');
             }
         }, timeout * 1000);
     }
 
-    submitModalFeedback(feedbackId, text = null) {
-        try {
-            if (text === null) {
-                const textarea = document.getElementById(`mcp-feedback-text-${feedbackId}`);
-                text = textarea ? textarea.value.trim() : '';
-            }
+    displayAIMessage(summary, feedbackId) {
+        const aiResults = document.getElementById('aiResults');
+        if (!aiResults) return;
 
-            console.log('📤 提交模态框反馈:', { feedbackId, text });
-
-            // 移除反馈显示
-            const feedbackModal = document.getElementById('mcp-feedback-modal');
-            if (feedbackModal) {
-                feedbackModal.remove();
-            }
-
-            // 发送反馈到MCP服务
-            this.sendWebSocketMessage({
-                action: 'submitFeedback',
-                data: {
-                    feedbackId: feedbackId,
-                    text: text,
-                    timestamp: new Date().toISOString(),
-                    metadata: {
-                        url: window.location.href,
-                        title: document.title,
-                        userAgent: navigator.userAgent
-                    }
-                }
-            });
-
-            this.showNotification('反馈已提交', 'success');
-
-        } catch (error) {
-            console.error('❌ 提交模态框反馈失败:', error);
-            this.showNotification('提交反馈失败: ' + error.message, 'error');
+        // 清空现有内容
+        aiResults.innerHTML = '';
+        
+        // 创建AI消息显示
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'ai-result active-request';
+        messageDiv.style.cssText = `
+            background: #e3f2fd;
+            border: 2px solid #2196f3;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+            position: relative;
+        `;
+        
+        messageDiv.innerHTML = `
+            <div class="timestamp">${new Date().toLocaleString()} - AI 工作摘要</div>
+            <div class="content" style="margin-top: 8px; line-height: 1.6;">${summary}</div>
+            <div style="margin-top: 12px; padding: 8px; background: rgba(33, 150, 243, 0.1); border-radius: 4px; font-size: 13px; color: #1976d2;">
+                <strong>💡 请在下方"反馈收集"区域输入您的反馈内容，然后点击"提交反馈"按钮</strong>
+            </div>
+        `;
+        
+        aiResults.appendChild(messageDiv);
+        
+        // 滚动到AI处理信息区域
+        const aiSection = document.querySelector('[data-section="results"]');
+        if (aiSection) {
+            aiSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
+
+    enableFeedbackSubmission() {
+        // 启用反馈相关按钮
+        if (this.submitFeedbackBtn) {
+            this.submitFeedbackBtn.disabled = false;
+            this.submitFeedbackBtn.textContent = '提交反馈给AI';
+            this.submitFeedbackBtn.style.background = '#4caf50';
+            this.submitFeedbackBtn.style.borderColor = '#4caf50';
+        }
+        
+        // 聚焦到反馈文本框
+        if (this.feedbackText) {
+            this.feedbackText.focus();
+            this.feedbackText.placeholder = '请输入您对AI工作的反馈、建议或问题...';
+        }
+        
+        // 展开反馈收集区域
+        const feedbackSection = document.querySelector('[data-section="feedback"]').nextElementSibling;
+        const feedbackHeader = document.querySelector('[data-section="feedback"]');
+        if (feedbackSection && feedbackSection.classList.contains('collapsed')) {
+            feedbackSection.classList.remove('collapsed');
+            feedbackHeader.classList.remove('collapsed');
+            feedbackHeader.querySelector('.chevron').textContent = '▼';
+        }
+    }
+
+    clearCurrentFeedbackRequest() {
+        this.currentFeedbackRequest = null;
+        
+        // 恢复提交按钮状态
+        if (this.submitFeedbackBtn) {
+            this.submitFeedbackBtn.textContent = '提交反馈';
+            this.submitFeedbackBtn.style.background = '';
+            this.submitFeedbackBtn.style.borderColor = '';
+        }
+        
+        // 恢复反馈文本框
+        if (this.feedbackText) {
+            this.feedbackText.placeholder = '请输入您的反馈内容...';
+        }
+        
+        // 移除active-request样式
+        const activeRequest = document.querySelector('.active-request');
+        if (activeRequest) {
+            activeRequest.classList.remove('active-request');
+            activeRequest.style.background = '#f3f2f1';
+            activeRequest.style.border = '1px solid #edebe9';
+        }
+    }
+
+
 
     sendWebSocketMessage(message) {
         if (this.mcpSocket && this.mcpSocket.readyState === WebSocket.OPEN) {
@@ -728,42 +661,108 @@ class MCPFeedbackSidePanel {
                 return;
             }
 
-            const feedbackData = {
-                id: Date.now().toString(),
-                text: text,
-                images: this.selectedFiles,
-                timestamp: new Date().toISOString(),
-                metadata: {
-                    url: window.location.href,
-                    title: document.title,
-                    userAgent: navigator.userAgent
+            // 检查是否是回复AI请求
+            if (this.currentFeedbackRequest) {
+                // 这是对AI请求的回复
+                const replyData = {
+                    feedbackId: this.currentFeedbackRequest.feedbackId,
+                    text: text,
+                    images: this.selectedFiles,
+                    timestamp: new Date().toISOString(),
+                    metadata: {
+                        url: window.location.href,
+                        title: document.title,
+                        userAgent: navigator.userAgent
+                    }
+                };
+
+                // 发送回复到MCP服务器
+                this.sendWebSocketMessage({
+                    action: 'submitFeedback',
+                    data: replyData
+                });
+
+                // 更新AI处理信息显示
+                this.updateAIMessageWithReply(text, this.selectedFiles);
+                
+                // 清除当前反馈请求
+                this.clearCurrentFeedbackRequest();
+                
+                this.showNotification('反馈已发送给AI', 'success');
+            } else {
+                // 普通反馈提交
+                const feedbackData = {
+                    id: Date.now().toString(),
+                    text: text,
+                    images: this.selectedFiles,
+                    timestamp: new Date().toISOString(),
+                    metadata: {
+                        url: window.location.href,
+                        title: document.title,
+                        userAgent: navigator.userAgent
+                    }
+                };
+
+                // 发送到MCP服务器
+                this.sendWebSocketMessage({
+                    action: 'submitFeedback',
+                    data: feedbackData
+                });
+
+                // 保存到历史记录
+                this.feedbackHistory.unshift(feedbackData);
+                if (this.feedbackHistory.length > this.settings.maxHistory) {
+                    this.feedbackHistory = this.feedbackHistory.slice(0, this.settings.maxHistory);
                 }
-            };
-
-            // 发送到MCP服务器
-            this.sendWebSocketMessage({
-                action: 'submitFeedback',
-                data: feedbackData
-            });
-
-            // 保存到历史记录
-            this.feedbackHistory.unshift(feedbackData);
-            if (this.feedbackHistory.length > this.settings.maxHistory) {
-                this.feedbackHistory = this.feedbackHistory.slice(0, this.settings.maxHistory);
+                await this.saveHistory();
+                this.updateHistoryDisplay();
+                
+                this.showNotification('反馈已提交', 'success');
             }
-            await this.saveHistory();
 
             // 清空表单
             if (this.feedbackText) this.feedbackText.value = '';
             this.selectedFiles = [];
             this.updateImagePreviews();
 
-            this.showNotification('反馈已提交', 'success');
-            this.updateHistoryDisplay();
-
         } catch (error) {
             console.error('提交反馈失败:', error);
             this.showNotification('提交反馈失败: ' + error.message, 'error');
+        }
+    }
+
+    updateAIMessageWithReply(replyText, images) {
+        const activeRequest = document.querySelector('.active-request');
+        if (activeRequest) {
+            // 添加用户回复部分
+            const replyDiv = document.createElement('div');
+            replyDiv.style.cssText = `
+                margin-top: 12px;
+                padding: 12px;
+                background: #f8f9fa;
+                border-left: 4px solid #28a745;
+                border-radius: 4px;
+            `;
+            
+            let replyContent = `<div style="font-weight: bold; color: #28a745; margin-bottom: 8px;">您的回复:</div>`;
+            replyContent += `<div style="line-height: 1.6;">${replyText || '(无文字内容)'}</div>`;
+            
+            if (images && images.length > 0) {
+                replyContent += `<div style="margin-top: 8px; color: #6c757d; font-size: 13px;">📷 包含 ${images.length} 张图片</div>`;
+            }
+            
+            replyContent += `<div style="margin-top: 8px; color: #6c757d; font-size: 12px;">已发送时间: ${new Date().toLocaleString()}</div>`;
+            
+            replyDiv.innerHTML = replyContent;
+            activeRequest.appendChild(replyDiv);
+            
+            // 更新原提示信息
+            const hint = activeRequest.querySelector('[style*="rgba(33, 150, 243, 0.1)"]');
+            if (hint) {
+                hint.innerHTML = '<strong>✅ 反馈已提交，感谢您的回复！</strong>';
+                hint.style.background = 'rgba(40, 167, 69, 0.1)';
+                hint.style.color = '#28a745';
+            }
         }
     }
 
