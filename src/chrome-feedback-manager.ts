@@ -21,6 +21,18 @@ export interface FeedbackData {
   source: 'chrome-extension';
 }
 
+// 新增：完整对话记录接口
+export interface ConversationRecord {
+  id: string;
+  timestamp: string;
+  request: {
+    summary: string;
+    timestamp: string;
+  };
+  response: FeedbackData;
+  type: 'mcp-interaction';
+}
+
 export interface FeedbackRequest {
   id: string;
   summary: string;
@@ -41,14 +53,32 @@ export class ChromeFeedbackManager {
   private wsServer: WebSocketServer | null = null;
   private clients: Map<string, ClientInfo> = new Map(); // 改用 Map 存储客户端信息
   private feedbackHistory: FeedbackData[] = [];
+  private conversationHistory: ConversationRecord[] = []; // 新增：对话历史记录
   private pendingRequests: Map<string, {
     resolve: (value: any) => void;
     reject: (error: Error) => void;
     timeout: NodeJS.Timeout;
+    summary?: string; // 新增：保存请求摘要
   }> = new Map();
   
   private readonly port = process.env.MCP_CHROME_PORT ? parseInt(process.env.MCP_CHROME_PORT) : 8797;
-  private readonly historyFile = join(process.cwd(), 'feedback-history.json');
+  private projectDirectory: string = process.cwd(); // 当前项目目录
+  private actualProjectDirectory: string = process.cwd(); // 实际项目目录（通过MCP调用传入）
+  
+  // 根据项目目录生成历史记录文件路径
+  private get historyFile(): string {
+    // 获取项目目录名称作为标识符
+    const projectName = this.actualProjectDirectory.split(/[/\\]/).pop() || 'default';
+    // 使用实际项目目录
+    return join(this.actualProjectDirectory, `feedback-history-${projectName}.json`);
+  }
+
+  // 设置实际项目目录
+  setActualProjectDirectory(projectPath: string): void {
+    this.actualProjectDirectory = projectPath;
+    console.error(`设置项目目录为: ${this.actualProjectDirectory}`);
+    console.error(`历史记录文件: ${this.historyFile}`);
+  }
 
   async initialize(): Promise<void> {
     await this.loadHistory();
@@ -124,10 +154,10 @@ export class ChromeFeedbackManager {
         body += chunk.toString();
       });
 
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const feedbackData = JSON.parse(body);
-          this.handleFeedbackSubmission(feedbackData);
+          await this.handleFeedbackSubmission(feedbackData);
           
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true }));
@@ -184,10 +214,10 @@ export class ChromeFeedbackManager {
       clientId: clientId
     }));
 
-    ws.on('message', (data) => {
+    ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
-        this.handleWebSocketMessage(clientId, message);
+        await this.handleWebSocketMessage(clientId, message);
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
       }
@@ -206,7 +236,7 @@ export class ChromeFeedbackManager {
     });
   }
 
-  private handleWebSocketMessage(clientId: string, message: any): void {
+  private async handleWebSocketMessage(clientId: string, message: any): Promise<void> {
     const clientInfo = this.clients.get(clientId);
     if (!clientInfo) {
       console.error('Unknown WebSocket client:', clientId);
@@ -237,9 +267,36 @@ export class ChromeFeedbackManager {
 
         case 'submitFeedback':
           if (message.data) {
-            this.handleFeedbackSubmission(message.data);
+            await this.handleFeedbackSubmission(message.data);
           } else {
             console.error('Missing data in submitFeedback message from client:', clientId);
+          }
+          break;
+
+        case 'getHistory':
+          try {
+            // 获取对话历史记录
+            const recentConversations = this.conversationHistory.slice(-10).reverse();
+            
+            // 发送响应
+            clientInfo.ws.send(JSON.stringify({
+              type: 'historyResponse',
+              requestId: message.requestId,
+              success: true,
+              data: recentConversations,
+              timestamp: new Date().toISOString()
+            }));
+            
+            console.error(`Sent ${recentConversations.length} conversation records to client ${clientId}`);
+          } catch (error) {
+            console.error('Error getting history for client:', clientId, error);
+            clientInfo.ws.send(JSON.stringify({
+              type: 'historyResponse',
+              requestId: message.requestId,
+              success: false,
+              error: (error as Error).message,
+              timestamp: new Date().toISOString()
+            }));
           }
           break;
 
@@ -251,7 +308,7 @@ export class ChromeFeedbackManager {
     }
   }
 
-  private handleFeedbackSubmission(data: any): void {
+  private async handleFeedbackSubmission(data: any): Promise<void> {
     try {
       // 验证基本数据
       if (!data || typeof data !== 'object') {
@@ -292,13 +349,41 @@ export class ChromeFeedbackManager {
         console.error(`Processed ${feedbackData.images.length} valid images out of ${data.images?.length || 0} submitted`);
       }
 
-      this.feedbackHistory.push(feedbackData);
+      // 检查是否为普通反馈（不保存到历史记录）
+      const isDirectFeedback = data.isDirectFeedback === true;
+      
+      if (!isDirectFeedback) {
+        // 只有MCP交互反馈才保存到历史记录
+        this.feedbackHistory.push(feedbackData);
+        await this.saveHistory();
+        console.error('MCP交互反馈已保存到历史记录:', feedbackData.id);
+      } else {
+        console.error('普通反馈已处理，未保存到历史记录:', feedbackData.id);
+      }
 
-      // 如果有待处理的请求，解决它
+      // 如果有待处理的请求，解决它（这通常是MCP交互）
       if (data.feedbackId && this.pendingRequests.has(data.feedbackId)) {
         const request = this.pendingRequests.get(data.feedbackId)!;
         clearTimeout(request.timeout);
         this.pendingRequests.delete(data.feedbackId);
+
+        // 如果这是MCP交互，保存完整对话记录
+        if (!isDirectFeedback && request.summary) {
+          const conversationRecord: ConversationRecord = {
+            id: Date.now().toString(),
+            timestamp: new Date().toISOString(),
+            request: {
+              summary: request.summary,
+              timestamp: new Date().toISOString()
+            },
+            response: feedbackData,
+            type: 'mcp-interaction'
+          };
+
+          this.conversationHistory.push(conversationRecord);
+          await this.saveConversationHistory();
+          console.error('完整对话记录已保存:', conversationRecord.id);
+        }
 
         try {
           const content = this.formatFeedbackResult(feedbackData);
@@ -318,28 +403,34 @@ export class ChromeFeedbackManager {
   }
 
   async requestInteractiveFeedback(args: any): Promise<any> {
-    const {
-      summary = '我已完成了您请求的任务。',
-      timeout = 600,
-      project_directory = '.'
-    } = args;
+    return new Promise(async (resolve, reject) => {
+      const { summary = '請提供您的反饋', timeout = 600000, project_directory = '.' } = args;
+      const feedbackId = Date.now().toString();
 
-    const feedbackId = Date.now().toString();
-    
-    console.error('Requesting interactive feedback...');
-    console.error('Summary:', summary);
-    console.error('Timeout:', timeout, 'seconds');
+      // 设置实际项目目录
+      if (project_directory !== '.') {
+        // 如果传入的是绝对路径，直接使用；否则相对于当前目录
+        const projectPath = project_directory.includes(':') ? project_directory : join(process.cwd(), project_directory);
+        this.setActualProjectDirectory(projectPath);
+      } else {
+        this.setActualProjectDirectory(process.cwd());
+      }
 
-    // 只计算 Chrome 扩展客户端数量
-    const chromeExtensionClients = Array.from(this.clients.values()).filter(
-      client => client.type === 'chrome-extension'
-    );
+      // 重新加载该项目的历史记录
+      await this.loadConversationHistory();
 
-    if (chromeExtensionClients.length === 0) {
-      throw new Error('No Chrome extension clients connected. Please ensure the Chrome extension is installed and connected.');
-    }
+      console.error(`Requesting feedback for project: ${this.actualProjectDirectory}`);
+      console.error(`History file: ${this.historyFile}`);
 
-    return new Promise((resolve, reject) => {
+      // 查找 Chrome 扩展客户端
+      const chromeExtensionClients = Array.from(this.clients.values()).filter(
+        client => client.type === 'chrome-extension'
+      );
+
+      if (chromeExtensionClients.length === 0) {
+        throw new Error('No Chrome extension clients connected. Please ensure the Chrome extension is installed and connected.');
+      }
+
       // 设置超时
       const timeoutHandle = setTimeout(() => {
         this.pendingRequests.delete(feedbackId);
@@ -350,7 +441,8 @@ export class ChromeFeedbackManager {
       this.pendingRequests.set(feedbackId, {
         resolve,
         reject,
-        timeout: timeoutHandle
+        timeout: timeoutHandle,
+        summary
       });
 
       // 向 Chrome 扩展客户端发送反馈请求
@@ -375,7 +467,19 @@ export class ChromeFeedbackManager {
   }
 
   async getFeedbackHistory(args: any): Promise<any> {
-    const { limit = 10 } = args;
+    const { limit = 10, project_directory = '.' } = args;
+    
+    // 更新项目目录
+    if (project_directory !== '.') {
+      // 如果传入的是绝对路径，直接使用；否则相对于当前目录
+      const projectPath = project_directory.includes(':') ? project_directory : join(process.cwd(), project_directory);
+      this.setActualProjectDirectory(projectPath);
+    } else {
+      this.setActualProjectDirectory(process.cwd());
+    }
+
+    // 重新加载该项目的历史记录
+    await this.loadHistory();
     
     const recentFeedback = this.feedbackHistory
       .slice(-limit)
@@ -383,7 +487,7 @@ export class ChromeFeedbackManager {
 
     const content: any[] = [{
       type: 'text',
-      text: `Feedback History (${recentFeedback.length} items):\n\n`
+      text: `项目反馈历史记录 (${recentFeedback.length} 条记录):\n项目路径: ${this.actualProjectDirectory}\n历史文件: ${this.historyFile}\n\n`
     }];
 
     recentFeedback.forEach(feedback => {
@@ -394,7 +498,21 @@ export class ChromeFeedbackManager {
     return { content };
   }
 
-  async clearFeedbackHistory(): Promise<any> {
+  async clearFeedbackHistory(args: any = {}): Promise<any> {
+    const { project_directory = '.' } = args;
+    
+    // 更新项目目录
+    if (project_directory !== '.') {
+      // 如果传入的是绝对路径，直接使用；否则相对于当前目录
+      const projectPath = project_directory.includes(':') ? project_directory : join(process.cwd(), project_directory);
+      this.setActualProjectDirectory(projectPath);
+    } else {
+      this.setActualProjectDirectory(process.cwd());
+    }
+
+    // 重新加载该项目的历史记录
+    await this.loadHistory();
+    
     const count = this.feedbackHistory.length;
     this.feedbackHistory = [];
     await this.saveHistory();
@@ -403,7 +521,7 @@ export class ChromeFeedbackManager {
       content: [
         {
           type: 'text',
-          text: `Cleared ${count} feedback records from history.`
+          text: `已清除项目 "${this.actualProjectDirectory}" 的 ${count} 条反馈记录。`
         }
       ]
     };
@@ -543,6 +661,27 @@ export class ChromeFeedbackManager {
       console.error(`Saved ${this.feedbackHistory.length} feedback records to history`);
     } catch (error) {
       console.error('Error saving feedback history:', error);
+    }
+  }
+
+  private async saveConversationHistory(): Promise<void> {
+    try {
+      await fs.writeFile(this.historyFile, JSON.stringify(this.conversationHistory, null, 2));
+      console.error(`Saved ${this.conversationHistory.length} conversation records to history`);
+    } catch (error) {
+      console.error('Error saving conversation history:', error);
+    }
+  }
+
+  private async loadConversationHistory(): Promise<void> {
+    try {
+      const data = await fs.readFile(this.historyFile, 'utf-8');
+      this.conversationHistory = JSON.parse(data);
+      console.error(`Loaded ${this.conversationHistory.length} conversation records from history`);
+    } catch (error) {
+      // 文件不存在或无法读取，使用空历史
+      this.conversationHistory = [];
+      console.error('No existing conversation history found, starting fresh');
     }
   }
 } 

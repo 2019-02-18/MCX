@@ -22,6 +22,7 @@ class MCPFeedbackSidePanel {
         this.setupEventListeners();
         this.setupSettingsEvents();
         this.setupCollapsibleSections();
+        this.initializeFeedbackForm(); // 初始化反馈表单状态
         this.updateUI();
         this.updateHistoryDisplay();
         
@@ -50,9 +51,23 @@ class MCPFeedbackSidePanel {
         // 历史记录元素
         this.historyList = document.getElementById('historyList');
         this.clearHistoryBtn = document.getElementById('clearHistoryBtn');
+        this.refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
         
         // 通知元素
         this.notification = document.getElementById('notification');
+    }
+
+    initializeFeedbackForm() {
+        // 初始化时禁用反馈表单，只有收到MCP请求时才启用
+        if (this.submitFeedbackBtn) {
+            this.submitFeedbackBtn.textContent = '等待AI请求反馈';
+            this.submitFeedbackBtn.disabled = true;
+        }
+        
+        if (this.feedbackText) {
+            this.feedbackText.placeholder = '等待AI请求反馈时才能提交...';
+            this.feedbackText.disabled = true;
+        }
     }
 
     setupEventListeners() {
@@ -112,6 +127,9 @@ class MCPFeedbackSidePanel {
         if (this.clearHistoryBtn) {
             this.clearHistoryBtn.addEventListener('click', () => this.clearHistory());
         }
+        if (this.refreshHistoryBtn) {
+            this.refreshHistoryBtn.addEventListener('click', () => this.refreshHistory());
+        }
         
         // 消息监听
         chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -141,7 +159,7 @@ class MCPFeedbackSidePanel {
             // 创建WebSocket连接
             this.mcpSocket = new WebSocket(serverUrl);
             
-            this.mcpSocket.onopen = () => {
+            this.mcpSocket.onopen = async () => {
                 this.isConnected = true;
                 this.updateConnectionStatus('connected', '已连接到MCP服务');
                 this.showNotification('成功连接到MCP Chrome Feedback服务！', 'success');
@@ -155,6 +173,13 @@ class MCPFeedbackSidePanel {
                 });
                 
                 this.updateUI();
+                
+                // 连接成功后自动加载历史记录
+                try {
+                    await this.loadHistory();
+                } catch (error) {
+                    console.error('自动加载历史记录失败:', error);
+                }
             };
             
             this.mcpSocket.onmessage = (event) => {
@@ -313,8 +338,9 @@ class MCPFeedbackSidePanel {
             this.submitFeedbackBtn.style.borderColor = '#4caf50';
         }
         
-        // 聚焦到反馈文本框
+        // 启用并聚焦到反馈文本框
         if (this.feedbackText) {
+            this.feedbackText.disabled = false;
             this.feedbackText.focus();
             this.feedbackText.placeholder = '请输入您对AI工作的反馈、建议或问题...';
         }
@@ -332,16 +358,18 @@ class MCPFeedbackSidePanel {
     clearCurrentFeedbackRequest() {
         this.currentFeedbackRequest = null;
         
-        // 恢复提交按钮状态
+        // 恢复提交按钮状态并禁用
         if (this.submitFeedbackBtn) {
-            this.submitFeedbackBtn.textContent = '提交反馈';
+            this.submitFeedbackBtn.textContent = '等待AI请求反馈';
             this.submitFeedbackBtn.style.background = '';
             this.submitFeedbackBtn.style.borderColor = '';
+            this.submitFeedbackBtn.disabled = true;
         }
         
         // 恢复反馈文本框
         if (this.feedbackText) {
-            this.feedbackText.placeholder = '请输入您的反馈内容...';
+            this.feedbackText.placeholder = '等待AI请求反馈时才能提交...';
+            this.feedbackText.disabled = true;
         }
         
         // 移除active-request样式
@@ -352,8 +380,6 @@ class MCPFeedbackSidePanel {
             activeRequest.style.border = '1px solid #edebe9';
         }
     }
-
-
 
     sendWebSocketMessage(message) {
         if (this.mcpSocket && this.mcpSocket.readyState === WebSocket.OPEN) {
@@ -382,7 +408,11 @@ class MCPFeedbackSidePanel {
         // 更新反馈相关按钮状态
         if (this.captureElementBtn) this.captureElementBtn.disabled = !this.isConnected;
         if (this.takeScreenshotBtn) this.takeScreenshotBtn.disabled = !this.isConnected;
-        if (this.submitFeedbackBtn) this.submitFeedbackBtn.disabled = !this.isConnected;
+        
+        // 提交反馈按钮只有在收到MCP请求时才启用
+        if (this.submitFeedbackBtn) {
+            this.submitFeedbackBtn.disabled = !this.isConnected || !this.currentFeedbackRequest;
+        }
         
         // 更新服务器地址输入框
         if (this.serverUrlInput && this.serverUrlInput.value !== this.settings.serverUrl) {
@@ -424,13 +454,72 @@ class MCPFeedbackSidePanel {
 
     async loadHistory() {
         try {
-            const result = await chrome.storage.local.get('mcpFeedbackHistory');
-            if (result.mcpFeedbackHistory) {
-                this.feedbackHistory = result.mcpFeedbackHistory;
+            // 首先尝试从服务器获取历史记录
+            if (this.isConnected && this.mcpSocket) {
+                console.log('📋 从MCP服务器获取历史记录...');
+                await this.loadHistoryFromServer();
+            } else {
+                // 如果没有连接到服务器，从本地存储加载
+                const result = await chrome.storage.local.get('mcpFeedbackHistory');
+                if (result.mcpFeedbackHistory) {
+                    this.feedbackHistory = result.mcpFeedbackHistory;
+                }
             }
         } catch (error) {
             console.error('加载历史记录失败:', error);
         }
+    }
+
+    // 从MCP服务器获取历史记录
+    async loadHistoryFromServer() {
+        return new Promise((resolve, reject) => {
+            if (!this.isConnected || !this.mcpSocket) {
+                reject(new Error('MCP服务器未连接'));
+                return;
+            }
+
+            // 发送获取历史记录的请求
+            const requestId = Date.now().toString();
+            const message = {
+                action: 'getHistory',
+                requestId: requestId,
+                timestamp: new Date().toISOString()
+            };
+
+            // 设置响应监听器
+            const responseHandler = (event) => {
+                try {
+                    const response = JSON.parse(event.data);
+                    if (response.type === 'historyResponse' && response.requestId === requestId) {
+                        this.mcpSocket.removeEventListener('message', responseHandler);
+                        
+                        if (response.success && response.data) {
+                            this.feedbackHistory = response.data;
+                            console.log(`✅ 从服务器获取了 ${this.feedbackHistory.length} 条历史记录`);
+                            this.updateHistoryDisplay();
+                            resolve(response.data);
+                        } else {
+                            console.error('服务器返回错误:', response.error);
+                            reject(new Error(response.error || '获取历史记录失败'));
+                        }
+                    }
+                } catch (error) {
+                    console.error('解析历史记录响应失败:', error);
+                }
+            };
+
+            // 设置超时
+            const timeout = setTimeout(() => {
+                this.mcpSocket.removeEventListener('message', responseHandler);
+                reject(new Error('获取历史记录超时'));
+            }, 5000);
+
+            this.mcpSocket.addEventListener('message', responseHandler);
+            this.sendWebSocketMessage(message);
+            
+            // 清除超时
+            setTimeout(() => clearTimeout(timeout), 5000);
+        });
     }
 
     async saveHistory() {
@@ -447,6 +536,23 @@ class MCPFeedbackSidePanel {
             this.saveHistory();
             this.updateHistoryDisplay();
             this.showNotification('历史记录已清空', 'success');
+        }
+    }
+
+    // 刷新历史记录
+    async refreshHistory() {
+        try {
+            this.showNotification('正在刷新历史记录...', 'info');
+            
+            if (this.isConnected && this.mcpSocket) {
+                await this.loadHistoryFromServer();
+                this.showNotification('历史记录已刷新', 'success');
+            } else {
+                this.showNotification('请先连接到MCP服务器', 'error');
+            }
+        } catch (error) {
+            console.error('刷新历史记录失败:', error);
+            this.showNotification('刷新历史记录失败: ' + error.message, 'error');
         }
     }
 
@@ -638,6 +744,23 @@ class MCPFeedbackSidePanel {
         }
     }
 
+    // 获取当前标签页信息
+    async getCurrentTabInfo() {
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            return {
+                url: tab.url || 'unknown',
+                title: tab.title || 'unknown'
+            };
+        } catch (error) {
+            console.error('获取标签页信息失败:', error);
+            return {
+                url: 'unknown',
+                title: 'unknown'
+            };
+        }
+    }
+
     // 截图
     async takeScreenshot() {
         try {
@@ -673,6 +796,9 @@ class MCPFeedbackSidePanel {
                 return;
             }
 
+            // 获取当前活动标签页的真实信息
+            const currentTabInfo = await this.getCurrentTabInfo();
+
             // 检查是否是回复AI请求
             if (this.currentFeedbackRequest) {
                 // 这是对AI请求的回复
@@ -682,8 +808,8 @@ class MCPFeedbackSidePanel {
                     images: this.selectedFiles,
                     timestamp: new Date().toISOString(),
                     metadata: {
-                        url: window.location.href,
-                        title: document.title,
+                        url: currentTabInfo.url,
+                        title: currentTabInfo.title,
                         userAgent: navigator.userAgent
                     }
                 };
@@ -715,34 +841,28 @@ class MCPFeedbackSidePanel {
                 
                 this.showNotification('反馈已发送给AI', 'success');
             } else {
-                // 普通反馈提交
+                // 普通反馈提交（不保存到历史记录）
                 const feedbackData = {
                     id: Date.now().toString(),
                     text: text,
                     images: this.selectedFiles,
                     timestamp: new Date().toISOString(),
                     metadata: {
-                        url: window.location.href,
-                        title: document.title,
+                        url: currentTabInfo.url,
+                        title: currentTabInfo.title,
                         userAgent: navigator.userAgent
-                    }
+                    },
+                    isDirectFeedback: true // 标记为普通反馈，不保存到历史记录
                 };
 
-                // 发送到MCP服务器
+                // 发送到MCP服务器（但不保存到历史记录）
                 this.sendWebSocketMessage({
                     action: 'submitFeedback',
                     data: feedbackData
                 });
 
-                // 保存到历史记录
-                this.feedbackHistory.unshift(feedbackData);
-                if (this.feedbackHistory.length > this.settings.maxHistory) {
-                    this.feedbackHistory = this.feedbackHistory.slice(0, this.settings.maxHistory);
-                }
-                await this.saveHistory();
-                this.updateHistoryDisplay();
-                
-                this.showNotification('反馈已提交', 'success');
+                // 注意：普通反馈不保存到历史记录
+                this.showNotification('反馈已提交（不会保存到历史记录）', 'success');
             }
 
             // 清空表单
@@ -802,7 +922,7 @@ class MCPFeedbackSidePanel {
 
         this.historyList.innerHTML = '';
         
-        this.feedbackHistory.slice(0, 10).forEach((feedback, index) => {
+        this.feedbackHistory.slice(0, 10).forEach((record, index) => {
             const historyItem = document.createElement('div');
             historyItem.className = 'history-item';
             historyItem.style.cssText = `
@@ -811,22 +931,409 @@ class MCPFeedbackSidePanel {
                 border-radius: 4px;
                 margin-bottom: 8px;
                 background: #f8f8f8;
+                cursor: pointer;
+                transition: background-color 0.2s;
             `;
             
-            const timestamp = new Date(feedback.timestamp).toLocaleString();
-            const textPreview = feedback.text.length > 100 ? 
-                feedback.text.substring(0, 100) + '...' : feedback.text;
+            // 处理对话记录格式
+            if (record.type === 'mcp-interaction') {
+                // 对话记录格式
+                const timestamp = new Date(record.timestamp).toLocaleString();
+                const requestPreview = record.request.summary.length > 80 ? 
+                    record.request.summary.substring(0, 80) + '...' : record.request.summary;
+                const responsePreview = record.response.text.length > 60 ? 
+                    record.response.text.substring(0, 60) + '...' : record.response.text;
+                
+                historyItem.innerHTML = `
+                    <div style="font-weight: bold; margin-bottom: 4px; color: #0078d4;">📋 对话记录 #${record.id}</div>
+                    <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${timestamp}</div>
+                    <div style="margin-bottom: 6px;">
+                        <div style="font-size: 12px; color: #0078d4; font-weight: bold;">AI请求:</div>
+                        <div style="font-size: 13px; color: #333; margin-left: 8px;">${requestPreview}</div>
+                    </div>
+                    <div style="margin-bottom: 8px;">
+                        <div style="font-size: 12px; color: #28a745; font-weight: bold;">用户回复:</div>
+                        <div style="font-size: 13px; color: #333; margin-left: 8px;">${responsePreview || '(仅图片回复)'}</div>
+                    </div>
+                    ${record.response.images && record.response.images.length > 0 ? 
+                        `<div style="font-size: 12px; color: #007bff;">📷 ${record.response.images.length} 张图片</div>` : ''}
+                    <div style="font-size: 11px; color: #999; margin-top: 6px;">点击查看详情</div>
+                `;
+            } else {
+                // 旧格式兼容
+                const timestamp = new Date(record.timestamp).toLocaleString();
+                const textPreview = record.text.length > 100 ? 
+                    record.text.substring(0, 100) + '...' : record.text;
+                
+                historyItem.innerHTML = `
+                    <div style="font-weight: bold; margin-bottom: 4px;">反馈 #${record.id}</div>
+                    <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${timestamp}</div>
+                    <div style="margin-bottom: 8px;">${textPreview || '(仅图片反馈)'}</div>
+                    ${record.images && record.images.length > 0 ? 
+                        `<div style="font-size: 12px; color: #007bff;">📷 ${record.images.length} 张图片</div>` : ''}
+                `;
+            }
             
-            historyItem.innerHTML = `
-                <div style="font-weight: bold; margin-bottom: 4px;">反馈 #${feedback.id}</div>
-                <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${timestamp}</div>
-                <div style="margin-bottom: 8px;">${textPreview || '(仅图片反馈)'}</div>
-                ${feedback.images && feedback.images.length > 0 ? 
-                    `<div style="font-size: 12px; color: #007bff;">📷 ${feedback.images.length} 张图片</div>` : ''}
-            `;
+            // 添加点击事件
+            historyItem.addEventListener('click', () => {
+                this.showHistoryDetail(record);
+            });
+            
+            // 悬停效果
+            historyItem.addEventListener('mouseenter', () => {
+                historyItem.style.background = '#e9ecef';
+            });
+            historyItem.addEventListener('mouseleave', () => {
+                historyItem.style.background = '#f8f8f8';
+            });
             
             this.historyList.appendChild(historyItem);
         });
+    }
+
+    // 显示历史记录详情
+    showHistoryDetail(record) {
+        let detailContent = '';
+        
+        if (record.type === 'mcp-interaction') {
+            // 对话记录详情
+            detailContent = `
+                <h3>📋 对话记录详情</h3>
+                <div style="margin-bottom: 16px;">
+                    <strong>记录ID:</strong> ${record.id}<br>
+                    <strong>时间:</strong> ${new Date(record.timestamp).toLocaleString()}
+                </div>
+                
+                <div style="margin-bottom: 16px; padding: 12px; background: #e7f3ff; border-left: 4px solid #0078d4; border-radius: 4px;">
+                    <h4 style="color: #0078d4; margin: 0 0 8px 0;">🤖 AI请求:</h4>
+                    <p style="margin: 0; line-height: 1.4;">${record.request.summary}</p>
+                    <small style="color: #666;">发送时间: ${new Date(record.request.timestamp).toLocaleString()}</small>
+                </div>
+                
+                <div style="margin-bottom: 16px; padding: 12px; background: #f0f9f0; border-left: 4px solid #28a745; border-radius: 4px;">
+                    <h4 style="color: #28a745; margin: 0 0 8px 0;">👤 用户回复:</h4>
+                    <p style="margin: 0; line-height: 1.4;">${record.response.text || '(无文字内容)'}</p>
+                    ${record.response.metadata?.url ? 
+                        `<small style="color: #666;">页面: ${record.response.metadata.url}</small>` : ''}
+                </div>
+            `;
+            
+            // 添加图片展示
+            if (record.response.images && record.response.images.length > 0) {
+                detailContent += `
+                    <div style="margin-bottom: 16px;">
+                        <h4 style="color: #007bff; margin: 0 0 8px 0;">📷 图片附件 (${record.response.images.length}张):</h4>
+                        <div class="image-gallery" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px;">`;
+                
+                record.response.images.forEach((image, index) => {
+                    detailContent += `
+                        <div class="image-item" style="border: 1px solid #ddd; border-radius: 4px; overflow: hidden; cursor: pointer;" data-image-index="${index}">
+                            <img src="${image.data}" alt="${image.name}" style="width: 100%; height: 80px; object-fit: cover;">
+                            <div style="padding: 4px; font-size: 11px; color: #666; text-align: center; background: #f8f9fa;">
+                                ${image.name}
+                            </div>
+                        </div>`;
+                });
+                
+                detailContent += `</div></div>`;
+            }
+        } else {
+            // 旧格式详情
+            detailContent = `
+                <h3>📝 反馈记录详情</h3>
+                <div style="margin-bottom: 16px;">
+                    <strong>记录ID:</strong> ${record.id}<br>
+                    <strong>时间:</strong> ${new Date(record.timestamp).toLocaleString()}
+                </div>
+                <div style="margin-bottom: 16px;">
+                    <h4>内容:</h4>
+                    <p style="line-height: 1.4;">${record.text || '(无文字内容)'}</p>
+                </div>
+            `;
+            
+            // 添加图片展示
+            if (record.images && record.images.length > 0) {
+                detailContent += `
+                    <div style="margin-bottom: 16px;">
+                        <h4 style="color: #007bff; margin: 0 0 8px 0;">📷 图片附件 (${record.images.length}张):</h4>
+                        <div class="image-gallery" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px;">`;
+                
+                record.images.forEach((image, index) => {
+                    detailContent += `
+                        <div class="image-item" style="border: 1px solid #ddd; border-radius: 4px; overflow: hidden; cursor: pointer;" data-image-index="${index}">
+                            <img src="${image.data}" alt="${image.name}" style="width: 100%; height: 80px; object-fit: cover;">
+                            <div style="padding: 4px; font-size: 11px; color: #666; text-align: center; background: #f8f9fa;">
+                                ${image.name}
+                            </div>
+                        </div>`;
+                });
+                
+                detailContent += `</div></div>`;
+            }
+        }
+        
+        // 创建详情弹窗
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+        
+        const modalContent = document.createElement('div');
+        modalContent.style.cssText = `
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 600px;
+            max-height: 80%;
+            overflow-y: auto;
+            position: relative;
+        `;
+        
+        // 添加关闭按钮和内容
+        modalContent.innerHTML = detailContent + `
+            <button class="close-btn" style="
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                background: #f1f1f1;
+                border: none;
+                border-radius: 50%;
+                width: 30px;
+                height: 30px;
+                cursor: pointer;
+                font-size: 16px;
+            ">×</button>
+            <button class="confirm-btn" style="
+                margin-top: 16px;
+                padding: 8px 16px;
+                background: #0078d4;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            ">关闭</button>
+        `;
+        
+        modal.className = 'modal';
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+        
+        // 使用addEventListener而不是内联事件处理器
+        const closeBtn = modalContent.querySelector('.close-btn');
+        const confirmBtn = modalContent.querySelector('.confirm-btn');
+        
+        const closeModal = () => {
+            modal.remove();
+        };
+        
+        closeBtn.addEventListener('click', closeModal);
+        confirmBtn.addEventListener('click', closeModal);
+        
+        // 点击背景关闭
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+        
+        // 图片点击查看大图
+        const imageItems = modalContent.querySelectorAll('.image-item');
+        imageItems.forEach((item, index) => {
+            item.addEventListener('click', () => {
+                const images = record.type === 'mcp-interaction' ? record.response.images : record.images;
+                this.showImageViewer(images, index);
+            });
+        });
+    }
+
+    // 显示图片查看器
+    showImageViewer(images, startIndex = 0) {
+        let currentIndex = startIndex;
+        
+        const viewer = document.createElement('div');
+        viewer.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10001;
+            flex-direction: column;
+        `;
+        
+        const imageContainer = document.createElement('div');
+        imageContainer.style.cssText = `
+            max-width: 90%;
+            max-height: 80%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `;
+        
+        const image = document.createElement('img');
+        image.style.cssText = `
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        `;
+        
+        const updateImage = () => {
+            const currentImage = images[currentIndex];
+            image.src = currentImage.data;
+            image.alt = currentImage.name;
+            
+            // 更新信息显示
+            info.textContent = `${currentIndex + 1} / ${images.length} - ${currentImage.name}`;
+        };
+        
+        // 创建控制栏
+        const controls = document.createElement('div');
+        controls.style.cssText = `
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            color: white;
+        `;
+        
+        const prevBtn = document.createElement('button');
+        prevBtn.textContent = '◀ 上一张';
+        prevBtn.style.cssText = `
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 4px;
+            cursor: pointer;
+        `;
+        
+        const nextBtn = document.createElement('button');
+        nextBtn.textContent = '下一张 ▶';
+        nextBtn.style.cssText = `
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 4px;
+            cursor: pointer;
+        `;
+        
+        const closeViewerBtn = document.createElement('button');
+        closeViewerBtn.textContent = '关闭';
+        closeViewerBtn.style.cssText = `
+            padding: 8px 16px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        `;
+        
+        const info = document.createElement('div');
+        info.style.cssText = `
+            color: white;
+            font-size: 14px;
+            text-align: center;
+        `;
+        
+        // 事件处理
+        prevBtn.addEventListener('click', () => {
+            if (currentIndex > 0) {
+                currentIndex--;
+                updateImage();
+            }
+        });
+        
+        nextBtn.addEventListener('click', () => {
+            if (currentIndex < images.length - 1) {
+                currentIndex++;
+                updateImage();
+            }
+        });
+        
+        closeViewerBtn.addEventListener('click', () => {
+            viewer.remove();
+        });
+        
+        // 键盘导航
+        const handleKeyPress = (e) => {
+            switch(e.key) {
+                case 'ArrowLeft':
+                    if (currentIndex > 0) {
+                        currentIndex--;
+                        updateImage();
+                    }
+                    break;
+                case 'ArrowRight':
+                    if (currentIndex < images.length - 1) {
+                        currentIndex++;
+                        updateImage();
+                    }
+                    break;
+                case 'Escape':
+                    viewer.remove();
+                    break;
+            }
+        };
+        
+        document.addEventListener('keydown', handleKeyPress);
+        
+        // 点击背景关闭
+        viewer.addEventListener('click', (e) => {
+            if (e.target === viewer) {
+                viewer.remove();
+            }
+        });
+        
+        // 清理事件监听器
+        viewer.addEventListener('remove', () => {
+            document.removeEventListener('keydown', handleKeyPress);
+        });
+        
+        // 组装界面
+        imageContainer.appendChild(image);
+        controls.appendChild(prevBtn);
+        controls.appendChild(info);
+        controls.appendChild(nextBtn);
+        controls.appendChild(closeViewerBtn);
+        
+        viewer.appendChild(imageContainer);
+        viewer.appendChild(controls);
+        
+        document.body.appendChild(viewer);
+        
+        // 初始化
+        updateImage();
+        
+        // 更新按钮状态
+        const updateButtons = () => {
+            prevBtn.disabled = currentIndex === 0;
+            nextBtn.disabled = currentIndex === images.length - 1;
+            prevBtn.style.opacity = currentIndex === 0 ? '0.5' : '1';
+            nextBtn.style.opacity = currentIndex === images.length - 1 ? '0.5' : '1';
+        };
+        
+        // 重新定义updateImage以包含按钮更新
+        const originalUpdateImage = updateImage;
+        updateImage = () => {
+            originalUpdateImage();
+            updateButtons();
+        };
+        
+        updateImage();
     }
 
     // 设置事件处理
