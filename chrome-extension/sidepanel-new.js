@@ -258,13 +258,14 @@ class MCPFeedbackSidePanel {
         // 显示通知
         this.showNotification('收到AI反馈请求，请在下方提交您的反馈', 'info');
         
-        // 设置超时自动清除
+        // 设置超时自动清除 (确保使用服务器发送的超时时间，默认600秒)
+        const timeoutMs = (timeout || 600) * 1000;
         setTimeout(() => {
             if (this.currentFeedbackRequest && this.currentFeedbackRequest.feedbackId === feedbackId) {
                 this.clearCurrentFeedbackRequest();
-                this.showNotification('反馈请求已超时', 'warning');
+                this.showNotification(`反馈请求已超时 (${timeout || 600}秒)`, 'warning');
             }
-        }, timeout * 1000);
+        }, timeoutMs);
     }
 
     displayAIMessage(summary, feedbackId) {
@@ -488,16 +489,27 @@ class MCPFeedbackSidePanel {
 
         const reader = new FileReader();
         reader.onload = (e) => {
+            // 确保有文件名，如果没有则生成一个
+            const fileName = file.name || `pasted-image-${Date.now()}.${file.type.split('/')[1] || 'png'}`;
+            
             const imageData = {
                 id: Date.now().toString(),
-                name: file.name,
-                data: e.target.result,
+                name: fileName,
+                data: e.target.result, // 这已经是 base64 格式 (data:image/...)
                 size: file.size
             };
             
             this.selectedFiles.push(imageData);
             this.updateImagePreviews();
-            this.showNotification(`已添加图片: ${file.name}`, 'success');
+            this.showNotification(`已添加图片: ${fileName}`, 'success');
+            
+            // 添加调试日志
+            console.log('📷 图片已添加:', {
+                name: fileName,
+                size: file.size,
+                dataLength: e.target.result ? e.target.result.length : 0,
+                dataPrefix: e.target.result ? e.target.result.substring(0, 50) : 'No data'
+            });
         };
         reader.readAsDataURL(file);
     }
@@ -675,6 +687,19 @@ class MCPFeedbackSidePanel {
                         userAgent: navigator.userAgent
                     }
                 };
+
+                // 添加调试日志
+                console.log('📤 发送AI反馈回复:', {
+                    feedbackId: replyData.feedbackId,
+                    textLength: text.length,
+                    imageCount: this.selectedFiles.length,
+                    imageDetails: this.selectedFiles.map(img => ({
+                        name: img.name,
+                        size: img.size,
+                        dataLength: img.data ? img.data.length : 0,
+                        hasValidData: img.data && img.data.startsWith('data:')
+                    }))
+                });
 
                 // 发送回复到MCP服务器
                 this.sendWebSocketMessage({

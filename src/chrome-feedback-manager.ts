@@ -10,7 +10,8 @@ export interface FeedbackData {
   images?: Array<{
     id: string;
     name: string;
-    data: string;
+    data: string; // base64格式的图片数据，包含data:image/...前缀
+    size?: number;
   }>;
   metadata?: {
     url?: string;
@@ -80,7 +81,16 @@ export class ChromeFeedbackManager {
         this.handleHttpRequest(req, res);
       });
 
-      this.wsServer = new WebSocketServer({ server: this.httpServer });
+      // 设置HTTP服务器超时以支持长连接
+      this.httpServer.timeout = 0; // 禁用HTTP服务器的默认超时
+      this.httpServer.headersTimeout = 0; // 禁用headers超时
+      this.httpServer.requestTimeout = 0; // 禁用请求超时
+
+      this.wsServer = new WebSocketServer({ 
+        server: this.httpServer,
+        maxPayload: 100 * 1024 * 1024, // 100MB最大payload用于图片传输
+        perMessageDeflate: false // 关闭压缩以提高性能
+      });
       
       this.wsServer.on('connection', (ws) => {
         this.handleWebSocketConnection(ws);
@@ -152,6 +162,20 @@ export class ChromeFeedbackManager {
     this.clients.set(clientId, clientInfo);
     console.error(`Chrome extension connected. Total clients: ${this.clients.size}`);
 
+    // 设置心跳机制以保持长连接
+    const heartbeat = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      } else {
+        clearInterval(heartbeat);
+      }
+    }, 30000); // 每30秒发送一次心跳
+
+    // 处理心跳响应
+    ws.on('pong', () => {
+      console.error(`Heartbeat received from client ${clientId}`);
+    });
+
     // 发送连接确认
     ws.send(JSON.stringify({
       type: 'connectionEstablished',
@@ -170,12 +194,14 @@ export class ChromeFeedbackManager {
     });
 
     ws.on('close', () => {
+      clearInterval(heartbeat);
       this.clients.delete(clientId);
       console.error(`Chrome extension disconnected. Remaining clients: ${this.clients.size}`);
     });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);
+      clearInterval(heartbeat);
       this.clients.delete(clientId);
     });
   }
@@ -187,59 +213,108 @@ export class ChromeFeedbackManager {
       return;
     }
 
-    // 根据消息类型识别客户端类型
-    if (message.action === 'init' && message.clientType) {
-      clientInfo.type = message.clientType === 'chrome-extension' ? 'chrome-extension' : 'web-ui';
-      console.error(`Client ${clientId} identified as: ${clientInfo.type}`);
-    }
+    try {
+      // 验证消息格式
+      if (!message || typeof message !== 'object') {
+        console.error('Invalid message format from client:', clientId);
+        return;
+      }
 
-    switch (message.action) {
-      case 'init':
-        clientInfo.ws.send(JSON.stringify({
-          type: 'initConfirmed',
-          message: 'Initialization confirmed',
-          timestamp: new Date().toISOString()
-        }));
-        break;
+      // 根据消息类型识别客户端类型
+      if (message.action === 'init' && message.clientType) {
+        clientInfo.type = message.clientType === 'chrome-extension' ? 'chrome-extension' : 'web-ui';
+        console.error(`Client ${clientId} identified as: ${clientInfo.type}`);
+      }
 
-      case 'submitFeedback':
-        this.handleFeedbackSubmission(message.data);
-        break;
+      switch (message.action) {
+        case 'init':
+          clientInfo.ws.send(JSON.stringify({
+            type: 'initConfirmed',
+            message: 'Initialization confirmed',
+            timestamp: new Date().toISOString()
+          }));
+          break;
 
-      default:
-        console.error('Unknown WebSocket message action:', message.action);
+        case 'submitFeedback':
+          if (message.data) {
+            this.handleFeedbackSubmission(message.data);
+          } else {
+            console.error('Missing data in submitFeedback message from client:', clientId);
+          }
+          break;
+
+        default:
+          console.error('Unknown WebSocket message action:', message.action, 'from client:', clientId);
+      }
+    } catch (error) {
+      console.error('Error handling WebSocket message from client:', clientId, error);
     }
   }
 
   private handleFeedbackSubmission(data: any): void {
-    const feedbackData: FeedbackData = {
-      id: data.feedbackId || Date.now().toString(),
-      timestamp: data.timestamp || new Date().toISOString(),
-      text: data.text || '',
-      images: data.images || [],
-      metadata: data.metadata || {},
-      source: 'chrome-extension'
-    };
+    try {
+      // 验证基本数据
+      if (!data || typeof data !== 'object') {
+        console.error('Invalid feedback data format');
+        return;
+      }
 
-    this.feedbackHistory.push(feedbackData);
+      const feedbackData: FeedbackData = {
+        id: data.feedbackId || Date.now().toString(),
+        timestamp: data.timestamp || new Date().toISOString(),
+        text: data.text || '',
+        images: Array.isArray(data.images) ? data.images : [],
+        metadata: data.metadata || {},
+        source: 'chrome-extension'
+      };
 
-    // 如果有待处理的请求，解决它
-    if (data.feedbackId && this.pendingRequests.has(data.feedbackId)) {
-      const request = this.pendingRequests.get(data.feedbackId)!;
-      clearTimeout(request.timeout);
-      this.pendingRequests.delete(data.feedbackId);
-
-      request.resolve({
-        content: [
-          {
-            type: 'text',
-            text: this.formatFeedbackResult(feedbackData)
+      // 验证图片数据
+      if (feedbackData.images && feedbackData.images.length > 0) {
+        feedbackData.images = feedbackData.images.filter((image, index) => {
+          if (!image || typeof image !== 'object') {
+            console.error(`Invalid image object at index ${index}`);
+            return false;
           }
-        ]
-      });
-    }
+          
+          if (!image.data || typeof image.data !== 'string') {
+            console.error(`Invalid image data at index ${index}: missing or non-string data`);
+            return false;
+          }
+          
+          if (!image.data.startsWith('data:image/')) {
+            console.error(`Invalid image data format at index ${index}: not a data URL`);
+            return false;
+          }
+          
+          return true;
+        });
+        
+        console.error(`Processed ${feedbackData.images.length} valid images out of ${data.images?.length || 0} submitted`);
+      }
 
-    console.error('Feedback received:', feedbackData.id);
+      this.feedbackHistory.push(feedbackData);
+
+      // 如果有待处理的请求，解决它
+      if (data.feedbackId && this.pendingRequests.has(data.feedbackId)) {
+        const request = this.pendingRequests.get(data.feedbackId)!;
+        clearTimeout(request.timeout);
+        this.pendingRequests.delete(data.feedbackId);
+
+        try {
+          const content = this.formatFeedbackResult(feedbackData);
+          request.resolve({
+            content: content
+          });
+        } catch (formatError) {
+          console.error('Error formatting feedback result:', formatError);
+          request.reject(new Error('Failed to format feedback result'));
+        }
+      }
+
+      console.error('Feedback received and processed:', feedbackData.id);
+    } catch (error) {
+      console.error('Error processing feedback submission:', error);
+    }
   }
 
   async requestInteractiveFeedback(args: any): Promise<any> {
@@ -306,15 +381,17 @@ export class ChromeFeedbackManager {
       .slice(-limit)
       .reverse();
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Feedback History (${recentFeedback.length} items):\n\n` +
-                recentFeedback.map(feedback => this.formatFeedbackResult(feedback)).join('\n\n')
-        }
-      ]
-    };
+    const content: any[] = [{
+      type: 'text',
+      text: `Feedback History (${recentFeedback.length} items):\n\n`
+    }];
+
+    recentFeedback.forEach(feedback => {
+      const feedbackContent = this.formatFeedbackResult(feedback);
+      content.push(...feedbackContent);
+    });
+
+    return { content };
   }
 
   async clearFeedbackHistory(): Promise<any> {
@@ -358,24 +435,94 @@ export class ChromeFeedbackManager {
     };
   }
 
-  private formatFeedbackResult(feedback: FeedbackData): string {
-    let result = `=== Feedback ${feedback.id} ===\n`;
-    result += `Time: ${feedback.timestamp}\n`;
-    result += `Text: ${feedback.text || '(No text provided)'}\n`;
+  private formatFeedbackResult(feedback: FeedbackData): any {
+    const content: any[] = [];
     
-    if (feedback.images && feedback.images.length > 0) {
-      result += `Images: ${feedback.images.length} attached\n`;
+    // 构建文本内容
+    let textContent = `=== 用戶回饋 ===\n`;
+    textContent += `時間: ${feedback.timestamp}\n`;
+    if (feedback.text) {
+      textContent += `文字內容: ${feedback.text}\n`;
     }
     
     if (feedback.metadata?.url) {
-      result += `URL: ${feedback.metadata.url}\n`;
+      textContent += `頁面URL: ${feedback.metadata.url}\n`;
     }
     
     if (feedback.metadata?.title) {
-      result += `Page Title: ${feedback.metadata.title}\n`;
+      textContent += `頁面標題: ${feedback.metadata.title}\n`;
     }
     
-    return result;
+    // 如果有图片，添加图片概要信息
+    if (feedback.images && feedback.images.length > 0) {
+      textContent += `\n=== 圖片附件概要 ===\n`;
+      textContent += `用戶提供了 ${feedback.images.length} 張圖片：\n\n`;
+      
+      feedback.images.forEach((image, index) => {
+        const fileName = image.name || `image-${index + 1}.png`;
+        let fileSize = 0;
+        let hasValidData = false;
+        
+        try {
+          if (image.data && typeof image.data === 'string') {
+            fileSize = Math.round(image.data.length / 1024);
+            hasValidData = image.data.startsWith('data:image/');
+          }
+        } catch (error) {
+          console.error(`Error processing image ${index}:`, error);
+        }
+        
+        textContent += `  ${index + 1}. ${fileName} (${fileSize} KB)\n`;
+        
+        if (hasValidData) {
+          textContent += `     ✅ 圖片數據完整\n`;
+        } else {
+          textContent += `     ❌ 圖片數據格式錯誤或缺失\n`;
+        }
+      });
+    }
+    
+    // 添加文本内容到结果
+    content.push({
+      type: 'text',
+      text: textContent
+    });
+    
+    // 处理图片内容 - 使用正确的MCP格式
+    if (feedback.images && feedback.images.length > 0) {
+      feedback.images.forEach((image, index) => {
+        try {
+          if (image.data && typeof image.data === 'string' && image.data.startsWith('data:image/')) {
+            // 解析图片数据
+            const dataParts = image.data.split(',');
+            if (dataParts.length === 2) {
+              const mimeTypePart = image.data.split(';')[0];
+              const mediaType = mimeTypePart.split(':')[1];
+              const base64Data = dataParts[1];
+              
+              if (mediaType && base64Data) {
+                // 使用MCP协议标准的图片格式
+                content.push({
+                  type: 'image',
+                  data: base64Data,
+                  mimeType: mediaType
+                });
+              } else {
+                console.error(`Invalid image format for image ${index}: missing media type or data`);
+              }
+            } else {
+              console.error(`Invalid image format for image ${index}: malformed data URL`);
+            }
+          } else {
+            console.error(`Invalid image data for image ${index}: not a valid data URL`);
+          }
+        } catch (error) {
+          console.error(`Error processing image ${index}:`, error);
+        }
+      });
+    }
+    
+    return content;
   }
 
   private async loadHistory(): Promise<void> {

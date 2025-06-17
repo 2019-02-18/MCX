@@ -33,7 +33,7 @@ const feedbackManager = new ChromeFeedbackManager();
 // 定义可用工具
 const tools: Tool[] = [
   {
-    name: 'interactive_feedback',
+    name: 'chrome_interactive_feedback',
     description: 'Request interactive feedback from user through Chrome extension interface',
     inputSchema: {
       type: 'object',
@@ -44,7 +44,7 @@ const tools: Tool[] = [
           default: '我已完成了您请求的任务。'
         },
         timeout: {
-          type: 'number',
+          type: 'number', 
           description: 'Timeout for user feedback in seconds',
           default: 600
         },
@@ -57,8 +57,8 @@ const tools: Tool[] = [
     }
   },
   {
-    name: 'get_feedback_history',
-    description: 'Get history of collected feedback',
+    name: 'chrome_get_feedback_history',
+    description: 'Get history of collected feedback from Chrome extension',
     inputSchema: {
       type: 'object',
       properties: {
@@ -71,15 +71,15 @@ const tools: Tool[] = [
     }
   },
   {
-    name: 'clear_feedback_history',
-    description: 'Clear all feedback history',
+    name: 'chrome_clear_feedback_history',
+    description: 'Clear all Chrome extension feedback history',
     inputSchema: {
       type: 'object',
       properties: {}
     }
   },
   {
-    name: 'get_extension_status',
+    name: 'chrome_get_extension_status',
     description: 'Get Chrome extension connection status',
     inputSchema: {
       type: 'object',
@@ -99,16 +99,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case 'interactive_feedback':
+      case 'chrome_interactive_feedback':
         return await feedbackManager.requestInteractiveFeedback(args);
 
-      case 'get_feedback_history':
+      case 'chrome_get_feedback_history':
         return await feedbackManager.getFeedbackHistory(args);
 
-      case 'clear_feedback_history':
+      case 'chrome_clear_feedback_history':
         return await feedbackManager.clearFeedbackHistory();
 
-      case 'get_extension_status':
+      case 'chrome_get_extension_status':
         return await feedbackManager.getExtensionStatus();
 
       default:
