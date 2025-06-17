@@ -116,6 +116,17 @@ class MCPFeedbackSidePanel {
         chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             this.handleMessage(message, sender, sendResponse);
         });
+        
+        // 添加存储监听器作为备用消息传递方案
+        chrome.storage.onChanged.addListener((changes, namespace) => {
+            if (changes.lastMessage && namespace === 'local') {
+                const message = changes.lastMessage.newValue;
+                if (message && Date.now() - message.timestamp < 5000) { // 5秒内的消息
+                    console.log('📨 Sidepanel: 通过存储接收到消息:', message.action);
+                    this.handleMessage(message);
+                }
+            }
+        });
     }
 
     async connectToMCP() {
@@ -137,6 +148,7 @@ class MCPFeedbackSidePanel {
                 // 发送初始化消息
                 this.sendWebSocketMessage({
                     action: 'init',
+                    clientType: 'chrome-extension',
                     source: 'chrome-extension',
                     timestamp: new Date().toISOString()
                 });
@@ -636,35 +648,47 @@ class MCPFeedbackSidePanel {
             
             // 向当前活跃标签页发送消息开始元素捕获
             const tabs = await chrome.tabs.query({active: true, currentWindow: true});
-            if (tabs[0]) {
-                // 首先注入element-inspector.js到页面（如果还没有注入）
-                try {
-                    await chrome.scripting.executeScript({
-                        target: { tabId: tabs[0].id },
-                        files: ['element-inspector.js']
-                    });
-                } catch (injectError) {
-                    console.log('Element inspector already injected or injection failed:', injectError);
-                }
-                
-                // 发送开始检查的消息
-                chrome.tabs.sendMessage(tabs[0].id, {
-                    action: 'startElementCapture'
-                }, (response) => {
-                    if (chrome.runtime.lastError) {
-                        console.error('发送消息失败:', chrome.runtime.lastError);
-                        this.showNotification('无法启动元素检查: ' + chrome.runtime.lastError.message, 'error');
-                    } else if (response && response.success) {
-                        this.showNotification('元素检查模式已启动，移动鼠标选择元素，点击捕获，按ESC退出', 'success');
-                    } else {
-                        this.showNotification('启动元素检查失败', 'error');
-                    }
-                });
-            } else {
+            if (!tabs[0]) {
                 this.showNotification('没有找到活跃的标签页', 'error');
+                return;
             }
+
+            const tabId = tabs[0].id;
+            console.log('📍 正在向标签页发送启动检查消息:', tabId);
+
+            try {
+                // 首先尝试注入element-inspector.js到页面
+                console.log('💉 注入element-inspector.js脚本...');
+                await chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    files: ['element-inspector.js']
+                });
+                console.log('✅ 脚本注入成功');
+            } catch (injectError) {
+                console.log('⚠️ 脚本注入失败或已存在:', injectError.message);
+            }
+
+            // 等待一下确保脚本加载完成
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // 发送开始检查的消息
+            console.log('📤 发送startElementCapture消息...');
+            chrome.tabs.sendMessage(tabId, {
+                action: 'startElementCapture'
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('❌ 发送消息失败:', chrome.runtime.lastError.message);
+                    this.showNotification('无法启动元素检查: ' + chrome.runtime.lastError.message, 'error');
+                } else if (response && response.success) {
+                    console.log('✅ 元素检查启动成功');
+                    this.showNotification('元素检查模式已启动', 'success');
+                } else {
+                    console.error('❌ 启动失败，响应:', response);
+                    this.showNotification('启动元素检查失败', 'error');
+                }
+            });
         } catch (error) {
-            console.error('元素捕获失败:', error);
+            console.error('❌ 元素捕获失败:', error);
             this.showNotification('元素捕获失败: ' + error.message, 'error');
         }
     }
@@ -846,6 +870,13 @@ class MCPFeedbackSidePanel {
                 }
                 break;
                 
+            case 'fillFeedbackText':
+                if (message.data && message.data.text && this.feedbackText) {
+                    this.feedbackText.value = message.data.text;
+                    this.showNotification('元素信息已填充到反馈内容', 'success');
+                }
+                break;
+                
             case 'requestFeedback':
                 if (message.data) {
                     this.handleFeedbackRequest(message.data);
@@ -861,9 +892,14 @@ class MCPFeedbackSidePanel {
         }
     }
 
-    // 处理元素捕获结果
+    // 处理元素捕获结果（仅处理截图）
     handleElementCaptured(data) {
-        if (data.screenshot) {
+        console.log('🖼️ Sidepanel: handleElementCaptured 被调用');
+        console.log('📋 Sidepanel: 收到数据:', data);
+        
+        if (data && data.screenshot) {
+            console.log('✅ Sidepanel: 发现截图数据，长度:', data.screenshot.length);
+            
             const imageData = {
                 id: Date.now().toString(),
                 name: `element-capture-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`,
@@ -871,15 +907,19 @@ class MCPFeedbackSidePanel {
                 size: data.screenshot.length
             };
             
+            console.log('📁 Sidepanel: 创建图片数据对象:', imageData.name);
+            
             this.selectedFiles.push(imageData);
             this.updateImagePreviews();
-            this.showNotification('元素已捕获', 'success');
+            this.showNotification('元素截图已添加到文件列表', 'success');
+            
+            console.log('✅ Sidepanel: 截图已成功添加到文件列表，当前文件数:', this.selectedFiles.length);
+        } else {
+            console.error('❌ Sidepanel: 未找到截图数据');
+            console.log('📋 Sidepanel: 完整数据结构:', JSON.stringify(data, null, 2));
         }
         
-        if (data.elementInfo && this.feedbackText) {
-            const elementInfo = `捕获元素信息:\n标签: ${data.elementInfo.tagName}\n类名: ${data.elementInfo.className}\n文本: ${data.elementInfo.textContent}\n\n`;
-            this.feedbackText.value = elementInfo + this.feedbackText.value;
-        }
+        // 移除自动填充元素信息的功能，这由 fillFeedbackText 消息单独处理
     }
 }
 

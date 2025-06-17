@@ -1,4 +1,4 @@
-// MCP Feedback Collector Background Script
+// chrome extension Background Script
 
 class MCPFeedbackBackground {
     constructor() {
@@ -21,7 +21,7 @@ class MCPFeedbackBackground {
     initializeExtension() {
         // 安装时的初始化
         chrome.runtime.onInstalled.addListener(() => {
-            console.log('MCP Feedback Collector 插件已安装');
+            console.log('chrome extension 插件已安装');
             
             // 设置默认配置
             chrome.storage.local.set({
@@ -98,10 +98,22 @@ class MCPFeedbackBackground {
                     
                 case 'elementCaptured':
                     // 转发元素捕获消息到侧边栏
+                    console.log('📤 Background: 收到elementCaptured消息，开始转发到侧边栏');
+                    console.log('🖼️ Background: 截图数据长度:', request.data?.screenshot?.length || 'undefined');
+                    
                     this.broadcastToSidepanels({
                         action: 'elementCaptured',
                         data: request.data
                     });
+                    
+                    // 同时尝试直接向侧边栏发送消息
+                    chrome.runtime.sendMessage({
+                        action: 'elementCaptured',
+                        data: request.data
+                    }).catch((error) => {
+                        console.log('📤 Background: 直接发送到侧边栏失败:', error.message);
+                    });
+                    
                     sendResponse({ success: true });
                     break;
                     
@@ -128,9 +140,16 @@ class MCPFeedbackBackground {
                     
                 case 'captureElementScreenshot':
                     // 捕获当前标签页截图
+                    console.log('📤 Background: 收到截图请求，开始处理...');
                     this.captureTabScreenshot()
-                        .then(result => sendResponse(result))
-                        .catch(error => sendResponse({ success: false, error: error.message }));
+                        .then(result => {
+                            console.log('📤 Background: 截图处理完成，发送响应:', result.success);
+                            sendResponse(result);
+                        })
+                        .catch(error => {
+                            console.error('📤 Background: 截图处理失败:', error);
+                            sendResponse({ success: false, error: error.message });
+                        });
                     return true;
                     
                 default:
@@ -283,7 +302,7 @@ class MCPFeedbackBackground {
                     // MCP服务器请求用户反馈
                     console.log('📨 Background: 收到反馈请求:', message.data);
                     this.broadcastToSidepanels({
-                        action: 'feedbackRequested',
+                        action: 'requestFeedback',  // 修改为与sidepanel期望的消息类型一致
                         data: message.data
                     });
                     
@@ -436,9 +455,21 @@ class MCPFeedbackBackground {
     }
     
     broadcastToSidepanels(message) {
-        // 向所有打开的侧边栏发送消息
-        chrome.runtime.sendMessage(message).catch(() => {
-            // 忽略没有接收者的错误
+        console.log('📤 Background: broadcastToSidepanels 发送消息:', message.action);
+        
+        // 方法1: 使用 chrome.runtime.sendMessage (用于sidepanel)
+        chrome.runtime.sendMessage(message).catch((error) => {
+            console.log('📤 Background: sendMessage 失败:', error.message);
+        });
+        
+        // 方法2: 通过存储进行通信 (备用方案)
+        chrome.storage.local.set({
+            lastMessage: {
+                ...message,
+                timestamp: Date.now()
+            }
+        }).catch((error) => {
+            console.error('📤 Background: 存储消息失败:', error);
         });
     }
 

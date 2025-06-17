@@ -1,4 +1,4 @@
-// MCP Feedback Collector Content Script
+// chrome extension Content Script
 
 class MCPFeedbackContent {
     constructor() {
@@ -547,6 +547,65 @@ class MCPFeedbackContent {
         console.log('🔓 元素检查事件已从所有层级解绑');
     }
     
+    // 绑定工具栏期间的键盘事件监听（专门用于ESC键）
+    bindToolbarKeyListener() {
+        this.onToolbarKeyDown = this.handleToolbarKeyDown.bind(this);
+        
+        // 在多个层级绑定键盘事件，确保能捕获ESC键
+        document.addEventListener('keydown', this.onToolbarKeyDown, true);
+        window.addEventListener('keydown', this.onToolbarKeyDown, true);
+        
+        if (document.body) {
+            document.body.addEventListener('keydown', this.onToolbarKeyDown, true);
+        }
+        
+        console.log('🔗 工具栏ESC键监听已绑定');
+    }
+    
+    // 解绑工具栏期间的键盘事件监听
+    unbindToolbarKeyListener() {
+        if (this.onToolbarKeyDown) {
+            document.removeEventListener('keydown', this.onToolbarKeyDown, true);
+            window.removeEventListener('keydown', this.onToolbarKeyDown, true);
+            
+            if (document.body) {
+                document.body.removeEventListener('keydown', this.onToolbarKeyDown, true);
+            }
+            
+            this.onToolbarKeyDown = null;
+            console.log('🔓 工具栏ESC键监听已解绑');
+        }
+    }
+    
+    // 处理工具栏期间的键盘事件
+    handleToolbarKeyDown(event) {
+        console.log('🎹 工具栏键盘事件触发:', {
+            key: event.key,
+            code: event.code,
+            keyCode: event.keyCode,
+            which: event.which
+        });
+        
+        // 检查多种ESC键的表示方式
+        const isEscapeKey = (
+            event.key === 'Escape' || 
+            event.code === 'Escape' ||
+            event.keyCode === 27 ||
+            event.which === 27
+        );
+        
+        if (isEscapeKey) {
+            console.log('🏃 工具栏期间ESC键被按下，退出捕获流程');
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            this.showDebugMessage('ESC退出捕获流程');
+            
+            // 执行取消捕获操作
+            this.cancelCapture();
+        }
+    }
+    
     // 处理鼠标移动
     handleInspectionMouseMove(event) {
         if (!this.isInspecting) return;
@@ -933,78 +992,168 @@ class MCPFeedbackContent {
         console.log('🔧 显示截图工具栏');
         this.showDebugMessage('显示截图工具栏');
         
+        // 绑定工具栏期间的ESC键监听
+        this.bindToolbarKeyListener();
+        
         // 获取元素位置
         const rect = element.getBoundingClientRect();
         const scrollX = window.scrollX || window.pageXOffset;
         const scrollY = window.scrollY || window.pageYOffset;
+        
+        // 计算工具栏的最佳位置
+        const toolbarWidth = 260; // 预估工具栏宽度
+        const toolbarHeight = 40; // 预估工具栏高度
+        const gap = 10; // 与元素的间距
+        
+        let left, top;
+        
+        // 优先尝试放在元素右侧
+        if (rect.right + gap + toolbarWidth <= window.innerWidth) {
+            left = rect.right + gap;
+            top = Math.max(10, Math.min(rect.top, window.innerHeight - toolbarHeight - 10));
+        }
+        // 如果右侧空间不够，尝试左侧
+        else if (rect.left - gap - toolbarWidth >= 0) {
+            left = rect.left - gap - toolbarWidth;
+            top = Math.max(10, Math.min(rect.top, window.innerHeight - toolbarHeight - 10));
+        }
+        // 如果左右都不够，放在元素上方或下方
+        else {
+            left = Math.max(10, Math.min(rect.left, window.innerWidth - toolbarWidth - 10));
+            if (rect.top - gap - toolbarHeight >= 0) {
+                top = rect.top - gap - toolbarHeight;
+            } else {
+                top = rect.bottom + gap;
+            }
+        }
         
         // 创建工具栏容器
         const toolbar = document.createElement('div');
         toolbar.id = 'mcp-capture-toolbar';
         toolbar.style.cssText = `
             position: fixed !important;
-            top: ${Math.max(10, rect.top - 60)}px !important;
-            left: ${rect.left}px !important;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            color: white !important;
-            padding: 8px 12px !important;
-            border-radius: 8px !important;
-            font-family: 'Segoe UI', Arial, sans-serif !important;
+            top: ${top}px !important;
+            left: ${left}px !important;
+            background: rgba(243, 243, 243, 0.95) !important;
+            color: #333333 !important;
+            padding: 0 !important;
+            border-radius: 6px !important;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif !important;
             font-size: 14px !important;
+            font-weight: 400 !important;
             z-index: 1000003 !important;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1) !important;
             display: flex !important;
             align-items: center !important;
-            gap: 10px !important;
-            animation: slideDown 0.3s ease-out !important;
+            gap: 1px !important;
+            animation: toolbarFadeIn 0.2s ease-out !important;
+            backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(0, 0, 0, 0.1) !important;
+            min-width: 280px !important;
+            height: 36px !important;
         `;
         
-        // 添加动画样式
+        // 添加VSCode风格的动画样式
+        const existingStyle = document.getElementById('mcp-toolbar-styles');
+        if (existingStyle) {
+            existingStyle.remove();
+        }
+        
         const style = document.createElement('style');
+        style.id = 'mcp-toolbar-styles';
         style.textContent = `
-            @keyframes slideDown {
+            @keyframes toolbarFadeIn {
                 from {
-                    transform: translateY(-20px);
+                    transform: scale(0.95);
                     opacity: 0;
                 }
                 to {
-                    transform: translateY(0);
+                    transform: scale(1);
                     opacity: 1;
                 }
             }
         `;
         document.head.appendChild(style);
         
-        // 工具栏内容
+        // Win10风格的工具栏内容
         toolbar.innerHTML = `
-            <span style="margin-right: 10px; font-weight: 500;">工具栏</span>
+            <button id="mcp-insert-text" style="
+                background: transparent;
+                color: #333333;
+                border: none;
+                border-right: 1px solid rgba(0, 0, 0, 0.1);
+                padding: 0 16px;
+                cursor: pointer;
+                font-size: 14px;
+                font-family: inherit;
+                font-weight: 400;
+                transition: all 0.15s ease;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                white-space: nowrap;
+                height: 36px;
+                line-height: 1;
+                border-radius: 5px 0 0 5px;
+                flex: 1;
+            ">
+                <span style="font-size: 16px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;">📄</span>
+                <span>获取信息</span>
+            </button>
             <button id="mcp-confirm-capture" style="
-                background: #10b981;
-                color: white;
+                background: transparent;
+                color: #333333;
                 border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
+                border-right: 1px solid rgba(0, 0, 0, 0.1);
+                padding: 0 16px;
                 cursor: pointer;
-                font-size: 12px;
-                margin-right: 5px;
-                transition: background 0.2s;
-            ">截图</button>
+                font-size: 14px;
+                font-family: inherit;
+                font-weight: 400;
+                transition: all 0.15s ease;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                white-space: nowrap;
+                height: 36px;
+                line-height: 1;
+                flex: 1;
+            ">
+                <span style="font-size: 16px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;">📷</span>
+                <span>截图</span>
+            </button>
             <button id="mcp-cancel-capture" style="
-                background: #ef4444;
-                color: white;
+                background: transparent;
+                color: #333333;
                 border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
+                padding: 0 16px;
                 cursor: pointer;
-                font-size: 12px;
-                margin-right: 10px;
-                transition: background 0.2s;
-            ">✗ 关闭</button>
+                font-size: 14px;
+                font-family: inherit;
+                font-weight: 400;
+                transition: all 0.15s ease;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                white-space: nowrap;
+                height: 36px;
+                line-height: 1;
+                border-radius: 0 5px 5px 0;
+                flex: 1;
+            ">
+                <span style="font-size: 16px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;">✕</span>
+                <span>关闭</span>
+            </button>
         `;
         
         document.body.appendChild(toolbar);
         
         // 绑定事件
+        document.getElementById('mcp-insert-text').addEventListener('click', () => {
+            console.log('🔘 插入文本按钮被点击');
+            this.insertTextToElement();
+        });
+        
         document.getElementById('mcp-confirm-capture').addEventListener('click', () => {
             console.log('🔘 确认截图按钮被点击');
             this.confirmCapture();
@@ -1015,23 +1164,42 @@ class MCPFeedbackContent {
             this.cancelCapture();
         });
         
-        // 添加悬停效果
         const buttons = toolbar.querySelectorAll('button');
         buttons.forEach(btn => {
             btn.addEventListener('mouseenter', (e) => {
-                if (e.target.id === 'mcp-confirm-capture') {
-                    e.target.style.background = '#059669';
-                } else if (e.target.id === 'mcp-cancel-capture') {
-                    e.target.style.background = '#dc2626';
-                }
+                e.target.style.background = 'rgba(0, 0, 0, 0.04)';
+                e.target.style.color = '#333333';
+                e.target.style.transform = 'translateY(-1px)';
+                e.target.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)';
             });
             
             btn.addEventListener('mouseleave', (e) => {
-                if (e.target.id === 'mcp-confirm-capture') {
-                    e.target.style.background = '#10b981';
-                } else if (e.target.id === 'mcp-cancel-capture') {
-                    e.target.style.background = '#ef4444';
-                }
+                e.target.style.background = 'transparent';
+                e.target.style.color = '#333333';
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = 'none';
+            });
+            
+            btn.addEventListener('mousedown', (e) => {
+                e.target.style.background = 'rgba(0, 0, 0, 0.08)';
+                e.target.style.transform = 'translateY(0) scale(0.98)';
+                e.target.style.transition = 'all 0.1s ease';
+            });
+            
+            btn.addEventListener('mouseup', (e) => {
+                e.target.style.background = 'rgba(0, 0, 0, 0.04)';
+                e.target.style.transform = 'translateY(-1px) scale(1)';
+                e.target.style.transition = 'all 0.15s ease';
+            });
+            
+            // 添加Win10风格的焦点样式
+            btn.addEventListener('focus', (e) => {
+                e.target.style.outline = '2px solid #0078d4';
+                e.target.style.outlineOffset = '1px';
+            });
+            
+            btn.addEventListener('blur', (e) => {
+                e.target.style.outline = 'none';
             });
         });
     }
@@ -1042,6 +1210,9 @@ class MCPFeedbackContent {
         if (toolbar) {
             toolbar.remove();
         }
+        
+        // 解绑工具栏期间的ESC键监听
+        this.unbindToolbarKeyListener();
     }
 
     // 确认捕获
@@ -1055,13 +1226,28 @@ class MCPFeedbackContent {
         // 执行实际的捕获操作
         if (this.selectedElement) {
             await this.captureElementData(this.selectedElement);
+            
+            // 等待截图处理完成，然后显示反馈表单
+            setTimeout(() => {
+                console.log('截图捕获完成，显示反馈表单，当前截图数量:', this.capturedScreenshots.length);
+                this.showDebugMessage('显示反馈表单...');
+                
+                // 确保selectedFiles数组被初始化
+                this.selectedFiles = [];
+                
+                this.showFeedbackForm({
+                    prefilledText: '=== 元素截图已捕获 ===\n请在下方描述您的问题或建议：\n\n'
+                });
+            }, 500); // 给一点时间让截图处理完成
         }
         
         // 停止检查并通知完成
         this.stopElementInspection('captureCompleted');
         
-        // 清理
-        this.cleanupCapture();
+        // 清理（但不清理截图数据，因为要用在反馈表单中）
+        this.selectedElement = null;
+        this.removeCaptureToolbar();
+        this.cleanupInspection();
     }
 
     // 取消捕获
@@ -1083,6 +1269,112 @@ class MCPFeedbackContent {
         
         console.log('🚫 cancelCapture: 取消流程完成');
     }
+
+    // 获取元素信息并填充到反馈内容
+    insertTextToElement() {
+        console.log('✏️ 获取元素信息并填充到反馈');
+        this.showDebugMessage('正在获取元素信息...');
+        
+        // 移除工具栏
+        this.removeCaptureToolbar();
+        
+        // 检查选中的元素
+        if (!this.selectedElement) {
+            this.showMessage('未选中有效元素', 'error');
+            return;
+        }
+        
+        // 获取元素信息并填充到反馈表单
+        this.captureElementInfoAndShowFeedback();
+    }
+
+    // 获取元素信息并显示反馈表单
+    async captureElementInfoAndShowFeedback() {
+        if (!this.selectedElement) {
+            this.showMessage('未选中有效元素', 'error');
+            return;
+        }
+        
+        const element = this.selectedElement;
+        
+        // 收集元素基本信息
+        const rect = element.getBoundingClientRect();
+        const scrollX = window.scrollX || window.pageXOffset;
+        const scrollY = window.scrollY || window.pageYOffset;
+        
+        // 收集元素属性
+        const attributes = {};
+        for (let attr of element.attributes) {
+            attributes[attr.name] = attr.value;
+        }
+        
+        // 生成CSS选择器
+        const cssSelector = this.generateCSSSelector(element);
+        
+        // 生成元素信息文本
+        const elementInfo = this.generateElementInfoText(element, cssSelector, rect, attributes);
+        
+        console.log('元素信息已生成:', elementInfo);
+        this.showDebugMessage('元素信息已获取，显示反馈表单');
+        
+        // 显示反馈表单，并预填充元素信息
+        this.showFeedbackForm({
+            prefilledText: elementInfo
+        });
+        
+        // 停止检查
+        this.stopElementInspection('feedbackShown');
+        this.cleanupCapture();
+    }
+    
+    // 生成元素信息文本
+    generateElementInfoText(element, cssSelector, rect, attributes) {
+        const tagName = element.tagName.toLowerCase();
+        const id = element.id ? `#${element.id}` : '';
+        const classes = element.className ? element.className.toString().trim().split(' ').map(c => `.${c}`).join('') : '';
+        const text = element.textContent ? element.textContent.trim() : '';
+        
+        let info = `=== 页面元素信息 ===\n`;
+        info += `页面URL: ${window.location.href}\n`;
+        info += `时间: ${new Date().toLocaleString()}\n\n`;
+        
+        info += `=== 元素基本信息 ===\n`;
+        info += `标签: ${tagName}\n`;
+        if (id) info += `ID: ${id}\n`;
+        if (classes) info += `类名: ${classes}\n`;
+        info += `CSS选择器: ${cssSelector}\n\n`;
+        
+        info += `=== 元素位置信息 ===\n`;
+        info += `位置: (${Math.round(rect.left + window.scrollX)}, ${Math.round(rect.top + window.scrollY)})\n`;
+        info += `大小: ${Math.round(rect.width)} × ${Math.round(rect.height)}\n`;
+        info += `可视区域位置: (${Math.round(rect.left)}, ${Math.round(rect.top)})\n\n`;
+        
+        if (text && text.length > 0) {
+            info += `=== 元素文本内容 ===\n`;
+            info += `${text.length > 200 ? text.substring(0, 200) + '...' : text}\n\n`;
+        }
+        
+        // 只显示重要的属性
+        const importantAttrs = ['src', 'href', 'alt', 'title', 'value', 'placeholder', 'type', 'name'];
+        const relevantAttrs = Object.entries(attributes).filter(([key]) => 
+            importantAttrs.includes(key) || key.startsWith('data-')
+        );
+        
+        if (relevantAttrs.length > 0) {
+            info += `=== 重要属性 ===\n`;
+            relevantAttrs.forEach(([key, value]) => {
+                info += `${key}: ${value}\n`;
+            });
+            info += '\n';
+        }
+        
+        info += `=== 用户反馈 ===\n`;
+        info += `请在此描述您的问题或建议：\n\n`;
+        
+        return info;
+    }
+
+
 
     // 开始编辑模式
     startEditMode() {
@@ -1207,7 +1499,7 @@ class MCPFeedbackContent {
                         class="mcp-feedback-textarea" 
                         placeholder="请描述您的问题、建议或意见..."
                         id="mcp-feedback-text"
-                    ></textarea>
+                    >${data.prefilledText || ''}</textarea>
                 </div>
                 
                 <div class="mcp-feedback-section">
@@ -1267,6 +1559,8 @@ class MCPFeedbackContent {
     
     // 自动添加捕获的截图到反馈表单
     async autoAddCapturedScreenshots() {
+        console.log('autoAddCapturedScreenshots被调用，截图数量:', this.capturedScreenshots.length);
+        
         if (this.capturedScreenshots.length === 0) {
             console.log('没有捕获的截图需要添加');
             return;
@@ -1275,14 +1569,22 @@ class MCPFeedbackContent {
         console.log('开始自动添加', this.capturedScreenshots.length, '张截图到反馈表单');
         
         // 等待DOM准备好
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 500));
         
         const preview = document.getElementById('mcp-feedback-preview');
         if (!preview) {
             console.error('找不到预览容器，将在DOM准备后重试');
             // 延迟重试
-            setTimeout(() => this.autoAddCapturedScreenshots(), 500);
+            setTimeout(() => this.autoAddCapturedScreenshots(), 1000);
             return;
+        }
+        
+        console.log('找到预览容器，开始处理截图');
+        
+        // 确保selectedFiles数组存在
+        if (!this.selectedFiles) {
+            this.selectedFiles = [];
+            console.log('初始化selectedFiles数组');
         }
         
         let successCount = 0;

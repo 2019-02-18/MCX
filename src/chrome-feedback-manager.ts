@@ -27,10 +27,18 @@ export interface FeedbackRequest {
   timestamp: string;
 }
 
+// 新增客户端类型接口
+export interface ClientInfo {
+  ws: WebSocket;
+  type: 'chrome-extension' | 'web-ui' | 'unknown';
+  id: string;
+  connectedAt: string;
+}
+
 export class ChromeFeedbackManager {
   private httpServer: HttpServer | null = null;
   private wsServer: WebSocketServer | null = null;
-  private clients: Set<WebSocket> = new Set();
+  private clients: Map<string, ClientInfo> = new Map(); // 改用 Map 存储客户端信息
   private feedbackHistory: FeedbackData[] = [];
   private pendingRequests: Map<string, {
     resolve: (value: any) => void;
@@ -133,40 +141,61 @@ export class ChromeFeedbackManager {
   }
 
   private handleWebSocketConnection(ws: WebSocket): void {
-    this.clients.add(ws);
+    const clientId = Date.now().toString();
+    const clientInfo: ClientInfo = {
+      ws,
+      type: 'unknown', // 初始状态，等待客户端标识
+      id: clientId,
+      connectedAt: new Date().toISOString()
+    };
+
+    this.clients.set(clientId, clientInfo);
     console.error(`Chrome extension connected. Total clients: ${this.clients.size}`);
 
     // 发送连接确认
     ws.send(JSON.stringify({
       type: 'connectionEstablished',
       message: 'Connected to MCP Chrome Feedback server',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      clientId: clientId
     }));
 
     ws.on('message', (data) => {
       try {
         const message = JSON.parse(data.toString());
-        this.handleWebSocketMessage(ws, message);
+        this.handleWebSocketMessage(clientId, message);
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
       }
     });
 
     ws.on('close', () => {
-      this.clients.delete(ws);
+      this.clients.delete(clientId);
       console.error(`Chrome extension disconnected. Remaining clients: ${this.clients.size}`);
     });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);
-      this.clients.delete(ws);
+      this.clients.delete(clientId);
     });
   }
 
-  private handleWebSocketMessage(ws: WebSocket, message: any): void {
+  private handleWebSocketMessage(clientId: string, message: any): void {
+    const clientInfo = this.clients.get(clientId);
+    if (!clientInfo) {
+      console.error('Unknown WebSocket client:', clientId);
+      return;
+    }
+
+    // 根据消息类型识别客户端类型
+    if (message.action === 'init' && message.clientType) {
+      clientInfo.type = message.clientType === 'chrome-extension' ? 'chrome-extension' : 'web-ui';
+      console.error(`Client ${clientId} identified as: ${clientInfo.type}`);
+    }
+
     switch (message.action) {
       case 'init':
-        ws.send(JSON.stringify({
+        clientInfo.ws.send(JSON.stringify({
           type: 'initConfirmed',
           message: 'Initialization confirmed',
           timestamp: new Date().toISOString()
@@ -226,7 +255,12 @@ export class ChromeFeedbackManager {
     console.error('Summary:', summary);
     console.error('Timeout:', timeout, 'seconds');
 
-    if (this.clients.size === 0) {
+    // 只计算 Chrome 扩展客户端数量
+    const chromeExtensionClients = Array.from(this.clients.values()).filter(
+      client => client.type === 'chrome-extension'
+    );
+
+    if (chromeExtensionClients.length === 0) {
       throw new Error('No Chrome extension clients connected. Please ensure the Chrome extension is installed and connected.');
     }
 
@@ -244,7 +278,7 @@ export class ChromeFeedbackManager {
         timeout: timeoutHandle
       });
 
-      // 向所有连接的客户端发送反馈请求
+      // 向 Chrome 扩展客户端发送反馈请求
       const requestMessage = {
         type: 'requestFeedback',
         data: {
@@ -255,13 +289,13 @@ export class ChromeFeedbackManager {
         }
       };
 
-      this.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(requestMessage));
+      chromeExtensionClients.forEach(clientInfo => {
+        if (clientInfo.ws.readyState === WebSocket.OPEN) {
+          clientInfo.ws.send(JSON.stringify(requestMessage));
         }
       });
 
-      console.error(`Feedback request sent to ${this.clients.size} clients`);
+      console.error(`Feedback request sent to ${chromeExtensionClients.length} Chrome extension clients`);
     });
   }
 
@@ -299,12 +333,22 @@ export class ChromeFeedbackManager {
   }
 
   async getExtensionStatus(): Promise<any> {
+    const chromeExtensionClients = Array.from(this.clients.values()).filter(
+      client => client.type === 'chrome-extension'
+    );
+    const webUIClients = Array.from(this.clients.values()).filter(
+      client => client.type === 'web-ui'
+    );
+    const unknownClients = Array.from(this.clients.values()).filter(
+      client => client.type === 'unknown'
+    );
+
     return {
       content: [
         {
           type: 'text',
           text: `Chrome Extension Status:
-- Connected clients: ${this.clients.size}
+- Connected clients: ${this.clients.size} (Chrome Extension: ${chromeExtensionClients.length}, Web UI: ${webUIClients.length}, Unknown: ${unknownClients.length})
 - Server port: ${this.port}
 - Total feedback collected: ${this.feedbackHistory.length}
 - Pending requests: ${this.pendingRequests.size}

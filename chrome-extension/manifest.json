@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "MCP Feedback Collector",
+  "name": "chrome extension",
   "version": "1.0.0",
   "description": "Browser extension for interactive user feedback collection with MCP integration",
   
@@ -9,7 +9,8 @@
     "storage",
     "sidePanel",
     "tabs",
-    "scripting"
+    "scripting",
+    "tabCapture"
   ],
   
   "host_permissions": [
@@ -25,7 +26,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js", "element-inspector.js"],
+      "js": ["content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }
@@ -44,7 +45,7 @@
   
   "web_accessible_resources": [
     {
-      "resources": ["sidepanel.css"],
+      "resources": ["sidepanel.css", "element-inspector.js"],
       "matches": ["<all_urls>"]
     }
   ]
