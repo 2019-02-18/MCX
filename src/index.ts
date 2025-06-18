@@ -222,6 +222,156 @@ const tools: Tool[] = [
       },
       required: ['selector']
     }
+  },
+  // 新增：智能表单填写
+  {
+    name: 'chrome_fill_form',
+    description: 'Intelligently fill out a form with multiple fields',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        formData: {
+          type: 'object',
+          description: 'Object containing field names as keys and values to fill',
+          additionalProperties: {
+            type: 'string'
+          }
+        },
+        submitAfter: {
+          type: 'boolean',
+          description: 'Whether to submit the form after filling',
+          default: false
+        }
+      },
+      required: ['formData']
+    }
+  },
+  // 新增：智能元素交互
+  {
+    name: 'chrome_interact_element',
+    description: 'Perform various interactions with DOM elements (click, hover, select, etc.)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description: 'CSS selector of the element to interact with'
+        },
+        action: {
+          type: 'string',
+          enum: ['click', 'doubleClick', 'hover', 'rightClick', 'select', 'check', 'focus', 'blur'],
+          description: 'Type of interaction to perform',
+          default: 'click'
+        },
+        value: {
+          type: 'string',
+          description: 'Value for select or check actions (optional)'
+        },
+        options: {
+          type: 'object',
+          description: 'Additional options for the interaction',
+          default: {}
+        }
+      },
+      required: ['selector']
+    }
+  },
+  // 新增：页面内容提取
+  {
+    name: 'chrome_extract_content',
+    description: 'Extract content from page elements or get general page information',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selectors: {
+          type: 'array',
+          items: {
+            type: 'string'
+          },
+          description: 'Array of CSS selectors to extract content from (empty for general page info)',
+          default: []
+        },
+        type: {
+          type: 'string',
+          enum: ['text', 'html', 'value', 'href', 'src', 'attributes'],
+          description: 'Type of content to extract',
+          default: 'text'
+        },
+        options: {
+          type: 'object',
+          description: 'Additional extraction options',
+          default: {}
+        }
+      }
+    }
+  },
+  // 新增：智能元素定位系统
+  {
+    name: 'chrome_smart_locate_element',
+    description: 'Use Playwright-inspired smart element location strategies to find elements with high precision',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description: 'Element identifier (can be text, placeholder, label, etc.)'
+        },
+        action: {
+          type: 'string',
+          enum: ['locate', 'analyze'],
+          description: 'Action to perform: locate elements or analyze page structure',
+          default: 'locate'
+        },
+        context: {
+          type: 'object',
+          description: 'Additional context for better element matching',
+          default: {},
+          properties: {
+            framework: {
+              type: 'string',
+              enum: ['vue', 'react', 'angular', 'auto'],
+              description: 'Target framework for better element detection',
+              default: 'auto'
+            },
+            containerSelector: {
+              type: 'string',
+              description: 'Limit search to within this container'
+            },
+            expectCount: {
+              type: 'number',
+              description: 'Expected number of elements to find'
+            }
+          }
+        }
+      },
+      required: ['selector']
+    }
+  },
+  // 新增：智能表单分析
+  {
+    name: 'chrome_analyze_form_structure',
+    description: 'Analyze form structure and provide intelligent field mapping suggestions',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        formSelector: {
+          type: 'string',
+          description: 'CSS selector for the form to analyze (optional)',
+          default: 'form'
+        },
+        includeHiddenFields: {
+          type: 'boolean',
+          description: 'Whether to include hidden form fields',
+          default: false
+        },
+        framework: {
+          type: 'string',
+          enum: ['vue', 'react', 'angular', 'auto'],
+          description: 'Target framework for better analysis',
+          default: 'auto'
+        }
+      }
+    }
   }
 ];
 
@@ -269,6 +419,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'chrome_wait_for_element':
         return await feedbackManager.waitForElement(args);
+
+      // 新增：智能表单填写
+      case 'chrome_fill_form':
+        return await feedbackManager.fillForm(args);
+
+      // 新增：智能元素交互
+      case 'chrome_interact_element':
+        return await feedbackManager.interactElement(args);
+
+      // 新增：页面内容提取
+      case 'chrome_extract_content':
+        return await feedbackManager.extractContent(args);
+
+      // 新增：智能元素定位系统
+      case 'chrome_smart_locate_element':
+        return await feedbackManager.smartLocateElement(args);
+
+      // 新增：智能表单分析
+      case 'chrome_analyze_form_structure':
+        return await feedbackManager.analyzeFormStructure(args);
 
       default:
         throw new Error(`Unknown tool: ${name}`);

@@ -248,7 +248,7 @@ export class ChromeFeedbackManager {
       if (!message || typeof message !== 'object') {
         console.error('Invalid message format from client:', clientId);
       return;
-    }
+      }
 
     // 根据消息类型识别客户端类型
     if (message.action === 'init' && message.clientType) {
@@ -891,5 +891,351 @@ export class ChromeFeedbackManager {
       clearTimeout(timeout);
       reject(new Error(`Failed to send command: ${error}`));
     }
+  }
+
+  /**
+   * 智能填表单 - 兼容接口
+   */
+  async fillForm(args: any): Promise<any> {
+    const { formData, submitAfter = false } = args;
+    
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      const command = {
+        action: 'automation',
+        type: 'fillForm',
+        requestId,
+        data: { formData, submitAfter },
+        timestamp: new Date().toISOString()
+      };
+
+      this.sendCommandToExtensions(command, requestId, resolve, reject, 30000);
+    });
+  }
+
+  /**
+   * 智能表单填写 - 增强版
+   */
+  async smartFillForm(formData: Record<string, string>): Promise<any> {
+    try {
+      console.log('开始智能表单填写...', formData);
+      
+      // 显示操作提示
+      await this.showAutomationStatus('开始自动化表单填写...', 'info');
+      
+      const result = await this.executeScript(`
+        (async function() {
+          // 操作状态显示函数
+          function showStatus(message, type = 'info') {
+            const statusDiv = document.createElement('div');
+            statusDiv.style.cssText = \`
+              position: fixed;
+              top: 20px;
+              right: 20px;
+              background: \${type === 'success' ? '#67C23A' : type === 'error' ? '#F56C6C' : '#409EFF'};
+              color: white;
+              padding: 12px 20px;
+              border-radius: 4px;
+              z-index: 10000;
+              font-size: 14px;
+              box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            \`;
+            statusDiv.textContent = message;
+            document.body.appendChild(statusDiv);
+            
+            setTimeout(() => {
+              if (statusDiv.parentNode) {
+                statusDiv.parentNode.removeChild(statusDiv);
+              }
+            }, 3000);
+          }
+          
+          // 增强的Vue组件交互函数
+          function triggerVueEvents(element, value) {
+            const events = ['input', 'change', 'blur'];
+            events.forEach(eventType => {
+              const event = new Event(eventType, { bubbles: true, cancelable: true });
+              Object.defineProperty(event, 'target', { value: element });
+              element.dispatchEvent(event);
+            });
+            
+            // Vue特定的数据更新
+            if (element.__vue__) {
+              element.__vue__.$emit('input', value);
+              element.__vue__.$emit('change', value);
+            }
+          }
+          
+          // 多策略元素定位函数
+          function findFieldElement(fieldName, value) {
+            const strategies = [
+              // 策略1: Vue label识别
+              () => {
+                const labels = Array.from(document.querySelectorAll('.el-form-item__label'));
+                for (const label of labels) {
+                  if (label.textContent.includes(fieldName)) {
+                    const formItem = label.closest('.el-form-item');
+                    if (formItem) {
+                      return formItem.querySelector('input, textarea, .el-select .el-input input');
+                    }
+                  }
+                }
+                return null;
+              },
+              
+              // 策略2: placeholder匹配
+              () => document.querySelector(\`input[placeholder*="\${fieldName}"], textarea[placeholder*="\${fieldName}"]\`),
+              
+              // 策略3: name属性匹配
+              () => document.querySelector(\`input[name*="\${fieldName}"], textarea[name*="\${fieldName}"]\`),
+              
+              // 策略4: 智能文本匹配
+              () => {
+                const allInputs = document.querySelectorAll('input, textarea, .el-select');
+                for (const input of allInputs) {
+                  const container = input.closest('.el-form-item');
+                  if (container && container.textContent.includes(fieldName)) {
+                    return input.tagName === 'INPUT' || input.tagName === 'TEXTAREA' ? 
+                           input : input.querySelector('input');
+                  }
+                }
+                return null;
+              }
+            ];
+            
+            for (const strategy of strategies) {
+              const element = strategy();
+              if (element) {
+                showStatus(\`找到字段: \${fieldName}\`, 'info');
+                return element;
+              }
+            }
+            
+            showStatus(\`未找到字段: \${fieldName}\`, 'error');
+            return null;
+          }
+          
+          // 处理不同类型的表单控件
+          async function fillField(fieldName, value) {
+            const element = findFieldElement(fieldName, value);
+            if (!element) return false;
+            
+            try {
+              // 检测控件类型并处理
+              if (element.closest('.el-select')) {
+                // 下拉选择框
+                const selectElement = element.closest('.el-select');
+                selectElement.click();
+                
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                const options = document.querySelectorAll('.el-select-dropdown .el-option');
+                for (const option of options) {
+                  if (option.textContent.includes(value)) {
+                    option.click();
+                    showStatus(\`已选择: \${fieldName} = \${value}\`, 'success');
+                    return true;
+                  }
+                }
+              } else if (element.closest('.el-date-editor')) {
+                // 日期选择器
+                element.focus();
+                element.value = value;
+                triggerVueEvents(element, value);
+                showStatus(\`已填写日期: \${fieldName} = \${value}\`, 'success');
+                return true;
+              } else if (element.closest('.el-time-picker')) {
+                // 时间选择器
+                element.focus();
+                element.value = value;
+                triggerVueEvents(element, value);
+                showStatus(\`已填写时间: \${fieldName} = \${value}\`, 'success');
+                return true;
+              } else if (element.type === 'checkbox') {
+                // 复选框
+                if (element.checked !== (value === 'true' || value === true)) {
+                  element.click();
+                  showStatus(\`已设置复选框: \${fieldName} = \${value}\`, 'success');
+                }
+                return true;
+              } else if (element.type === 'radio') {
+                // 单选框
+                const radioGroup = document.querySelectorAll(\`input[name="\${element.name}"]\`);
+                for (const radio of radioGroup) {
+                  const label = radio.closest('label') || radio.nextElementSibling;
+                  if (label && label.textContent.includes(value)) {
+                    radio.click();
+                    showStatus(\`已选择单选项: \${fieldName} = \${value}\`, 'success');
+                    return true;
+                  }
+                }
+              } else {
+                // 普通输入框和文本域
+                element.focus();
+                element.value = value;
+                triggerVueEvents(element, value);
+                showStatus(\`已填写: \${fieldName} = \${value}\`, 'success');
+                return true;
+              }
+              
+              await new Promise(resolve => setTimeout(resolve, 200));
+              return true;
+              
+            } catch (error) {
+              showStatus(\`填写失败: \${fieldName} - \${error.message}\`, 'error');
+              return false;
+            }
+          }
+          
+          // 执行表单填写
+          const results = {};
+          const formData = ${JSON.stringify(formData)};
+          
+          showStatus('开始自动填写表单...', 'info');
+          
+          for (const [fieldName, value] of Object.entries(formData)) {
+            const success = await fillField(fieldName, value);
+            results[fieldName] = success;
+            
+            // 添加延迟确保Vue组件状态更新
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+          
+          // 显示最终结果
+          const successCount = Object.values(results).filter(Boolean).length;
+          const totalCount = Object.keys(results).length;
+          
+          showStatus(\`表单填写完成: \${successCount}/\${totalCount} 字段成功\`, 
+                    successCount === totalCount ? 'success' : 'error');
+          
+          return {
+            success: successCount === totalCount,
+            results: results,
+            message: \`填写完成: \${successCount}/\${totalCount} 字段成功\`
+          };
+        })();
+      `);
+
+      return result;
+      
+    } catch (error) {
+      await this.showAutomationStatus(`表单填写失败: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      throw error;
+    }
+  }
+
+  /**
+   * 显示自动化操作状态
+   */
+  private async showAutomationStatus(message: string, type: 'info' | 'success' | 'error' = 'info'): Promise<void> {
+    try {
+      await this.executeScript(`
+        (function() {
+          const statusDiv = document.createElement('div');
+          statusDiv.style.cssText = \`
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: \${type === 'success' ? '#67C23A' : type === 'error' ? '#F56C6C' : '#409EFF'};
+            color: white;
+            padding: 12px 20px;
+            border-radius: 4px;
+            z-index: 10000;
+            font-size: 14px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            max-width: 300px;
+          \`;
+          statusDiv.textContent = '${message}';
+          document.body.appendChild(statusDiv);
+          
+          setTimeout(() => {
+            if (statusDiv.parentNode) {
+              statusDiv.parentNode.removeChild(statusDiv);
+            }
+          }, 3000);
+        })();
+      `);
+    } catch (error: any) {
+      console.error('显示状态失败:', error);
+    }
+  }
+
+  /**
+   * 元素交互功能
+   */
+  async interactElement(args: any): Promise<any> {
+    const { selector, action = 'click', value, options = {} } = args;
+    
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      const command = {
+        action: 'automation',
+        type: 'interactElement',
+        requestId,
+        data: { selector, action, value, options },
+        timestamp: new Date().toISOString()
+      };
+
+      this.sendCommandToExtensions(command, requestId, resolve, reject, 15000);
+    });
+  }
+
+  /**
+   * 内容提取功能
+   */
+  async extractContent(args: any): Promise<any> {
+    const { selectors = [], type = 'text', options = {} } = args;
+    const requestId = Date.now().toString();
+
+    return new Promise((resolve, reject) => {
+      this.sendCommandToExtensions(
+        {
+          action: 'extractContent',
+          data: { selectors, type, options }
+        },
+        requestId,
+        resolve,
+        reject,
+        30000
+      );
+    });
+  }
+
+  // 新增：智能元素定位系统
+  async smartLocateElement(args: any): Promise<any> {
+    const { selector, action = 'locate', context = {} } = args;
+    const requestId = Date.now().toString();
+
+    return new Promise((resolve, reject) => {
+      this.sendCommandToExtensions(
+        {
+          action: 'smartElementLocator',
+          data: { selector, action, context }
+        },
+        requestId,
+        resolve,
+        reject,
+        30000
+      );
+    });
+  }
+
+  // 新增：智能表单分析
+  async analyzeFormStructure(args: any): Promise<any> {
+    const { formSelector = 'form', includeHiddenFields = false, framework = 'auto' } = args;
+    const requestId = Date.now().toString();
+
+    return new Promise((resolve, reject) => {
+      this.sendCommandToExtensions(
+        {
+          action: 'analyzeFormStructure',
+          data: { formSelector, includeHiddenFields, framework }
+        },
+        requestId,
+        resolve,
+        reject,
+        30000
+      );
+    });
   }
 } 

@@ -317,9 +317,12 @@ class MCPFeedbackSidePanel {
             position: relative;
         `;
         
+        // 使用通用的markdown渲染函数
+        const renderedContent = this.renderMarkdown(summary);
+        
         messageDiv.innerHTML = `
             <div class="timestamp">${new Date().toLocaleString()} - AI 工作摘要</div>
-            <div class="content" style="margin-top: 8px; line-height: 1.6;">${summary}</div>
+            <div class="content markdown-content" style="margin-top: 8px;">${renderedContent}</div>
             <div style="margin-top: 12px; padding: 8px; background: rgba(33, 150, 243, 0.1); border-radius: 4px; font-size: 13px; color: #1976d2;">
                 <strong>💡 请在下方"反馈收集"区域输入您的反馈内容，然后点击"提交反馈"按钮</strong>
             </div>
@@ -424,6 +427,31 @@ class MCPFeedbackSidePanel {
                     result = await this.automationWaitForElement(data);
                     break;
                     
+                // 新增：智能表单填写
+                case 'fillForm':
+                    result = await this.automationFillForm(data);
+                    break;
+                    
+                // 新增：智能元素交互
+                case 'interactElement':
+                    result = await this.automationInteractElement(data);
+                    break;
+                    
+                // 新增：页面内容提取
+                case 'extractContent':
+                    result = await this.automationExtractContent(data);
+                    break;
+                    
+                // 新增：智能元素定位
+                case 'smartElementLocator':
+                    result = await this.automationSmartElementLocator(data);
+                    break;
+                    
+                // 新增：智能表单分析
+                case 'analyzeFormStructure':
+                    result = await this.automationAnalyzeFormStructure(data);
+                    break;
+                    
                 default:
                     throw new Error(`Unknown automation command: ${type}`);
             }
@@ -479,7 +507,7 @@ class MCPFeedbackSidePanel {
         return `Successfully navigated to ${url}`;
     }
 
-    // 自动化操作：点击元素
+    // 自动化操作：点击元素 (增强框架支持)
     async automationClick(data) {
         const { selector, waitTime } = data;
         
@@ -488,13 +516,142 @@ class MCPFeedbackSidePanel {
         const result = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             func: (selector) => {
-                const element = document.querySelector(selector);
+                // 检测页面框架类型
+                const framework = window.frameDetector?.detectFramework() || (() => {
+                    if (typeof Vue !== 'undefined') return 'Vue';
+                    if (typeof React !== 'undefined') return 'React';
+                    if (typeof angular !== 'undefined') return 'Angular';
+                    if (document.querySelector('[data-elementor]')) return 'Elementor';
+                    if (document.querySelector('.el-')) return 'Element UI';
+                    if (document.querySelector('.ant-')) return 'Ant Design';
+                    if (document.querySelector('.v-')) return 'Vuetify';
+                    return 'Unknown';
+                })();
+                
+                console.log('🔍 检测到框架:', framework);
+                
+                // 多种选择器策略
+                const findElement = (sel) => {
+                    // 1. 直接CSS选择器
+                    let element = document.querySelector(sel);
+                    if (element) return element;
+                    
+                    // 2. 模糊文本匹配 (适用于动态生成的按钮)
+                    if (sel.includes('text:')) {
+                        const text = sel.replace('text:', '').trim();
+                        const elements = Array.from(document.querySelectorAll('button, a, [role="button"], .el-button, .ant-btn'));
+                        element = elements.find(el => 
+                            el.textContent?.trim().toLowerCase().includes(text.toLowerCase()) ||
+                            el.getAttribute('aria-label')?.toLowerCase().includes(text.toLowerCase())
+                        );
+                        if (element) return element;
+                    }
+                    
+                    // 3. 智能框架特定选择器
+                    const frameworkSelectors = {
+                        'Element UI': [
+                            sel.replace('button', '.el-button'),
+                            sel.replace('input', '.el-input__inner'),
+                            `.el-${sel}`,
+                            `[class*="el-${sel}"]`
+                        ],
+                        'Ant Design': [
+                            sel.replace('button', '.ant-btn'),
+                            sel.replace('input', '.ant-input'),
+                            `.ant-${sel}`,
+                            `[class*="ant-${sel}"]`
+                        ],
+                        'Vuetify': [
+                            sel.replace('button', '.v-btn'),
+                            sel.replace('input', '.v-text-field__slot input'),
+                            `.v-${sel}`,
+                            `[class*="v-${sel}"]`
+                        ]
+                    };
+                    
+                    const alternatives = frameworkSelectors[framework] || [];
+                    for (const altSel of alternatives) {
+                        element = document.querySelector(altSel);
+                        if (element) {
+                            console.log('✅ 使用框架特定选择器找到元素:', altSel);
+                            return element;
+                        }
+                    }
+                    
+                    // 4. 属性匹配 (适用于复杂组件)
+                    const attrSelectors = [
+                        `[data-testid="${sel}"]`,
+                        `[data-cy="${sel}"]`,
+                        `[id*="${sel}"]`,
+                        `[class*="${sel}"]`,
+                        `[aria-label*="${sel}"]`
+                    ];
+                    
+                    for (const attrSel of attrSelectors) {
+                        element = document.querySelector(attrSel);
+                        if (element) {
+                            console.log('✅ 使用属性选择器找到元素:', attrSel);
+                            return element;
+                        }
+                    }
+                    
+                    return null;
+                };
+                
+                const element = findElement(selector);
                 if (!element) {
-                    throw new Error(`Element not found: ${selector}`);
+                    throw new Error(`Element not found with selector: ${selector}. Framework: ${framework}`);
                 }
                 
-                element.click();
-                return `Clicked element: ${selector}`;
+                // 确保元素可见且可点击
+                if (!element.offsetParent && element.style.display !== 'none') {
+                    console.warn('⚠️ 元素可能不可见，尝试滚动到视图');
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+                
+                // 智能点击策略
+                const performClick = (el) => {
+                    // 1. 尝试原生点击
+                    try {
+                        el.click();
+                        return 'native-click';
+                    } catch (e) {
+                        console.warn('原生点击失败:', e);
+                    }
+                    
+                    // 2. 尝试事件派发
+                    try {
+                        el.dispatchEvent(new MouseEvent('click', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true
+                        }));
+                        return 'event-dispatch';
+                    } catch (e) {
+                        console.warn('事件派发失败:', e);
+                    }
+                    
+                    // 3. 模拟鼠标事件序列
+                    try {
+                        ['mousedown', 'mouseup', 'click'].forEach(eventType => {
+                            el.dispatchEvent(new MouseEvent(eventType, {
+                                view: window,
+                                bubbles: true,
+                                cancelable: true
+                            }));
+                        });
+                        return 'mouse-sequence';
+                    } catch (e) {
+                        console.warn('鼠标事件序列失败:', e);
+                    }
+                    
+                    throw new Error('所有点击方法都失败');
+                };
+                
+                const clickMethod = performClick(element);
+                console.log('✅ 点击成功，方法:', clickMethod);
+                
+                return `Clicked element: ${selector} using ${clickMethod} method. Framework: ${framework}`;
             },
             args: [selector]
         });
@@ -506,7 +663,7 @@ class MCPFeedbackSidePanel {
         return result[0].result;
     }
 
-    // 自动化操作：填写输入框
+    // 自动化操作：填写输入框 (增强框架支持)
     async automationFillInput(data) {
         const { selector, text, clearFirst } = data;
         
@@ -515,20 +672,102 @@ class MCPFeedbackSidePanel {
         const result = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             func: (selector, text, clearFirst) => {
-                const element = document.querySelector(selector);
+                // 智能输入框查找
+                const findInput = (sel) => {
+                    // 1. 直接选择器
+                    let element = document.querySelector(sel);
+                    if (element) return element;
+                    
+                    // 2. 框架特定输入框
+                    const frameworkInputs = [
+                        // Element UI
+                        `${sel} .el-input__inner`,
+                        `.el-input__inner[placeholder*="${sel}"]`,
+                        
+                        // Ant Design
+                        `${sel} .ant-input`,
+                        `.ant-input[placeholder*="${sel}"]`,
+                        
+                        // Vuetify
+                        `${sel} .v-text-field__slot input`,
+                        `.v-text-field input[placeholder*="${sel}"]`,
+                        
+                        // 通用
+                        `input[name="${sel}"]`,
+                        `input[id="${sel}"]`,
+                        `input[placeholder*="${sel}"]`,
+                        `textarea[name="${sel}"]`,
+                        `textarea[placeholder*="${sel}"]`,
+                        `[contenteditable="true"][data-placeholder*="${sel}"]`
+                    ];
+                    
+                    for (const inputSel of frameworkInputs) {
+                        element = document.querySelector(inputSel);
+                        if (element) {
+                            console.log('✅ 使用框架输入选择器:', inputSel);
+                            return element;
+                        }
+                    }
+                    
+                    return null;
+                };
+                
+                const element = findInput(selector);
                 if (!element) {
                     throw new Error(`Input element not found: ${selector}`);
                 }
                 
+                // 聚焦元素
+                element.focus();
+                
+                // 清空处理
                 if (clearFirst) {
                     element.value = '';
+                    element.textContent = '';
                 }
                 
-                element.value = text;
-                element.dispatchEvent(new Event('input', { bubbles: true }));
-                element.dispatchEvent(new Event('change', { bubbles: true }));
+                // 智能输入策略
+                const performInput = (el, value) => {
+                    // 1. 标准表单输入
+                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                        el.value = value;
+                        
+                        // 触发各种事件确保框架响应
+                        ['input', 'change', 'keyup', 'blur'].forEach(eventType => {
+                            el.dispatchEvent(new Event(eventType, { bubbles: true }));
+                        });
+                        
+                        return 'form-input';
+                    }
+                    
+                    // 2. contenteditable 元素
+                    if (el.contentEditable === 'true') {
+                        el.textContent = value;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        return 'contenteditable';
+                    }
+                    
+                    // 3. 复杂组件输入
+                    if (el.classList.contains('el-input__inner') || 
+                        el.classList.contains('ant-input') || 
+                        el.classList.contains('v-text-field')) {
+                        
+                        // 模拟键盘输入
+                        el.value = value;
+                        ['focus', 'input', 'change', 'blur'].forEach(eventType => {
+                            el.dispatchEvent(new Event(eventType, { bubbles: true }));
+                        });
+                        
+                        return 'component-input';
+                    }
+                    
+                    throw new Error('无法确定输入方法');
+                };
                 
-                return `Filled input ${selector} with: ${text}`;
+                const inputMethod = performInput(element, text);
+                console.log('✅ 输入成功，方法:', inputMethod);
+                
+                return `Filled input ${selector} with: ${text} using ${inputMethod} method`;
             },
             args: [selector, text, clearFirst]
         });
@@ -590,7 +829,7 @@ class MCPFeedbackSidePanel {
                 
                 return info;
             },
-            args: [includeElements, elementSelector ?? null]
+            args: [includeElements, elementSelector || null]
         });
         
         return result[0].result;
@@ -619,7 +858,7 @@ class MCPFeedbackSidePanel {
         };
     }
 
-    // 自动化操作：等待元素出现
+    // 自动化操作：等待元素出现 (增强框架支持)
     async automationWaitForElement(data) {
         const { selector, timeout } = data;
         
@@ -631,10 +870,54 @@ class MCPFeedbackSidePanel {
                 return new Promise((resolve, reject) => {
                     const startTime = Date.now();
                     
+                    // 智能元素查找（复用点击功能的选择器逻辑）
+                    const findElement = (sel) => {
+                        // 检测框架
+                        const framework = (() => {
+                            if (typeof Vue !== 'undefined') return 'Vue';
+                            if (typeof React !== 'undefined') return 'React';
+                            if (typeof angular !== 'undefined') return 'Angular';
+                            if (document.querySelector('.el-')) return 'Element UI';
+                            if (document.querySelector('.ant-')) return 'Ant Design';
+                            if (document.querySelector('.v-')) return 'Vuetify';
+                            return 'Unknown';
+                        })();
+                        
+                        // 1. 直接CSS选择器
+                        let element = document.querySelector(sel);
+                        if (element) return element;
+                        
+                        // 2. 框架特定选择器
+                        const frameworkSelectors = {
+                            'Element UI': [`.el-${sel}`, `[class*="el-${sel}"]`, sel.replace('button', '.el-button')],
+                            'Ant Design': [`.ant-${sel}`, `[class*="ant-${sel}"]`, sel.replace('button', '.ant-btn')],
+                            'Vuetify': [`.v-${sel}`, `[class*="v-${sel}"]`, sel.replace('button', '.v-btn')]
+                        };
+                        
+                        const alternatives = frameworkSelectors[framework] || [];
+                        for (const altSel of alternatives) {
+                            element = document.querySelector(altSel);
+                            if (element) return element;
+                        }
+                        
+                        // 3. 属性匹配
+                        const attrSelectors = [
+                            `[data-testid="${sel}"]`, `[data-cy="${sel}"]`,
+                            `[id*="${sel}"]`, `[class*="${sel}"]`
+                        ];
+                        
+                        for (const attrSel of attrSelectors) {
+                            element = document.querySelector(attrSel);
+                            if (element) return element;
+                        }
+                        
+                        return null;
+                    };
+                    
                     const checkElement = () => {
-                        const element = document.querySelector(selector);
-                        if (element) {
-                            resolve(`Element found: ${selector}`);
+                        const element = findElement(selector);
+                        if (element && element.offsetParent !== null) {
+                            resolve(`Element found and visible: ${selector}`);
                             return;
                         }
                         
@@ -1213,8 +1496,10 @@ class MCPFeedbackSidePanel {
             if (record.type === 'mcp-interaction') {
                 // 对话记录格式
                 const timestamp = new Date(record.timestamp).toLocaleString();
-                const requestPreview = record.request.summary.length > 80 ? 
-                    record.request.summary.substring(0, 80) + '...' : record.request.summary;
+                // 对于预览，我们不渲染markdown，只显示纯文本
+                const requestPreview = record.request.summary.replace(/<[^>]*>/g, '').length > 80 ? 
+                    record.request.summary.replace(/<[^>]*>/g, '').substring(0, 80) + '...' : 
+                    record.request.summary.replace(/<[^>]*>/g, '');
                 const responsePreview = record.response.text.length > 60 ? 
                     record.response.text.substring(0, 60) + '...' : record.response.text;
             
@@ -1280,7 +1565,7 @@ class MCPFeedbackSidePanel {
                 
                 <div style="margin-bottom: 16px; padding: 12px; background: #e7f3ff; border-left: 4px solid #0078d4; border-radius: 4px;">
                     <h4 style="color: #0078d4; margin: 0 0 8px 0;">🤖 AI请求:</h4>
-                    <p style="margin: 0; line-height: 1.4;">${record.request.summary}</p>
+                    <div class="markdown-content" style="margin: 0;">${this.renderMarkdown(record.request.summary)}</div>
                     <small style="color: #666;">发送时间: ${new Date(record.request.timestamp).toLocaleString()}</small>
                 </div>
                 
@@ -1726,7 +2011,1093 @@ class MCPFeedbackSidePanel {
         
         // 移除自动填充元素信息的功能，这由 fillFeedbackText 消息单独处理
     }
+
+    // 新增：智能表单填写
+    async automationFillForm(data) {
+        const { formData, submitAfter = false } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        // 使用智能定位系统升级的表单填充
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (formDataString, submitAfter) => {
+                const formData = JSON.parse(formDataString);
+                const results = [];
+                const errors = [];
+                
+                // 重用智能元素定位器类
+                class SmartFormFiller {
+                    constructor() {
+                        this.locator = new SmartElementLocator();
+                        this.fieldMappings = {
+                            'username': ['username', 'user', 'login', 'email', 'account', '用户名', '账号'],
+                            'password': ['password', 'pwd', 'pass', '密码'],
+                            'email': ['email', 'mail', 'e-mail', '邮箱', '电子邮件'],
+                            'phone': ['phone', 'tel', 'mobile', 'cellphone', '电话', '手机'],
+                            'name': ['name', 'fullname', 'realname', '姓名', '名字'],
+                            'firstname': ['firstname', 'fname', 'given-name', '名', '名字'],
+                            'lastname': ['lastname', 'lname', 'family-name', '姓', '姓氏']
+                        };
+                    }
+                    
+                    // 智能查找表单字段
+                    findFormField(fieldName, value) {
+                        // 1. 使用智能定位器查找
+                        const located = this.locator.locate(fieldName);
+                        if (located.length > 0) {
+                            // 过滤出输入类型的元素
+                            const inputElements = located.filter(item => 
+                                ['INPUT', 'SELECT', 'TEXTAREA'].includes(item.element.tagName) ||
+                                item.element.contentEditable === 'true'
+                            );
+                            
+                            if (inputElements.length > 0) {
+                                return inputElements[0].element; // 返回置信度最高的
+                            }
+                        }
+                        
+                        // 2. 传统查找方法作为备选
+                        return this.traditionalFind(fieldName);
+                    }
+                    
+                    traditionalFind(fieldName) {
+                        // 直接匹配
+                        let field = document.querySelector(`[name="${fieldName}"]`) ||
+                                  document.querySelector(`[id="${fieldName}"]`) ||
+                                  document.querySelector(`[data-field="${fieldName}"]`);
+                        
+                        if (field) return field;
+                        
+                        // 使用映射查找
+                        const aliases = this.fieldMappings[fieldName.toLowerCase()] || [fieldName];
+                        for (const alias of aliases) {
+                            field = document.querySelector(`[name*="${alias}"]`) ||
+                                   document.querySelector(`[id*="${alias}"]`) ||
+                                   document.querySelector(`[placeholder*="${alias}"]`);
+                            if (field) return field;
+                        }
+                        
+                        return null;
+                    }
+                    
+                    // 智能填充字段
+                    async fillField(field, value, fieldName) {
+                        return new Promise((resolve) => {
+                            try {
+                                // 确保元素可见并聚焦
+                                field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                field.focus();
+                                
+                                // 等待一小段时间确保聚焦完成
+                                setTimeout(() => {
+                                    // 清空现有值
+                                    if (field.tagName === 'SELECT') {
+                                        // 处理选择框
+                                        this.handleSelectField(field, value, fieldName);
+                                    } else if (field.type === 'checkbox' || field.type === 'radio') {
+                                        // 处理复选框和单选框
+                                        this.handleCheckboxRadio(field, value);
+                                    } else if (field.contentEditable === 'true') {
+                                        // 处理可编辑内容
+                                        this.handleContentEditable(field, value);
+                                    } else {
+                                        // 处理普通输入框
+                                        this.handleInputField(field, value);
+                                    }
+                                    
+                                    // 触发Vue/React的数据绑定事件
+                                    this.triggerFrameworkEvents(field, value);
+                                    
+                                    resolve(`Filled ${fieldName}: ${value}`);
+                                }, 100);
+                            } catch (error) {
+                                resolve(`Error filling ${fieldName}: ${error.message}`);
+                            }
+                        });
+                    }
+                    
+                    handleInputField(field, value) {
+                        // 清空并设置新值
+                        field.value = '';
+                        field.value = value;
+                        
+                        // 模拟逐字符输入（对于一些框架很重要）
+                        if (field.type === 'text' || field.type === 'email' || field.type === 'password') {
+                            field.value = '';
+                            for (let i = 0; i < value.length; i++) {
+                                field.value += value[i];
+                                field.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: value[i] }));
+                                field.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true, key: value[i] }));
+                                field.dispatchEvent(new Event('input', { bubbles: true }));
+                                field.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: value[i] }));
+                            }
+                        }
+                    }
+                    
+                    handleSelectField(field, value) {
+                        // 查找匹配的选项
+                        const options = Array.from(field.options);
+                        const matchedOption = options.find(opt => 
+                            opt.value === value || 
+                            opt.text === value ||
+                            opt.text.includes(value) ||
+                            opt.value.includes(value)
+                        );
+                        
+                        if (matchedOption) {
+                            field.value = matchedOption.value;
+                            matchedOption.selected = true;
+                        }
+                    }
+                    
+                    handleCheckboxRadio(field, value) {
+                        const shouldCheck = value === true || value === 'true' || value === '1' || value === 'on';
+                        field.checked = shouldCheck;
+                    }
+                    
+                    handleContentEditable(field, value) {
+                        field.innerHTML = '';
+                        field.textContent = value;
+                    }
+                    
+                    triggerFrameworkEvents(field, value) {
+                        // 触发所有可能的事件来确保框架响应
+                        const events = ['input', 'change', 'blur', 'keyup', 'keydown'];
+                        
+                        events.forEach(eventType => {
+                            if (eventType.startsWith('key')) {
+                                field.dispatchEvent(new KeyboardEvent(eventType, { 
+                                    bubbles: true, 
+                                    cancelable: true,
+                                    key: 'Enter'
+                                }));
+                            } else {
+                                field.dispatchEvent(new Event(eventType, { 
+                                    bubbles: true,
+                                    cancelable: true
+                                }));
+                            }
+                        });
+                        
+                        // Vue特定事件
+                        if (window.Vue || document.querySelector('[data-v-]')) {
+                            field.dispatchEvent(new CustomEvent('vue:update', { 
+                                bubbles: true, 
+                                detail: { value } 
+                            }));
+                        }
+                        
+                        // React特定事件
+                        if (window.React || field._valueTracker) {
+                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                            nativeInputValueSetter.call(field, value);
+                            field.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    }
+                }
+                
+                // 实例化智能表单填充器
+                const filler = new SmartFormFiller();
+                
+                // 填写所有字段
+                const fillPromises = Object.entries(formData).map(async ([fieldName, value]) => {
+                    const field = filler.findFormField(fieldName, value);
+                    if (!field) {
+                        errors.push(`Field not found: ${fieldName}`);
+                        return;
+                    }
+                    
+                    const result = await filler.fillField(field, value, fieldName);
+                    results.push(result);
+                });
+                
+                // 等待所有字段填写完成
+                Promise.all(fillPromises).then(() => {
+                    // 自动提交表单
+                    if (submitAfter && errors.length === 0) {
+                        setTimeout(() => {
+                            try {
+                                const submitBtn = document.querySelector('button[type="submit"]') ||
+                                               document.querySelector('input[type="submit"]') ||
+                                               document.querySelector('.el-button--primary') ||
+                                               document.querySelector('.ant-btn-primary') ||
+                                               document.querySelector('.v-btn--primary') ||
+                                               document.querySelector('button[class*="submit"]') ||
+                                               document.querySelector('button');
+                                
+                                if (submitBtn) {
+                                    submitBtn.click();
+                                    results.push('Form submitted successfully');
+                                } else {
+                                    errors.push('Submit button not found');
+                                }
+                            } catch (error) {
+                                errors.push(`Submit error: ${error.message}`);
+                            }
+                        }, 500); // 给字段填写一些时间
+                    }
+                });
+                
+                return { results, errors, total: Object.keys(formData).length };
+            },
+            args: [JSON.stringify(formData), submitAfter]
+        });
+        
+        return result[0].result;
+    }
+
+    // 新增：智能元素交互
+    async automationInteractElement(data) {
+        const { selector, action = 'click', value = null, options = {} } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        // 序列化options参数
+        const optionsString = JSON.stringify(options);
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (selector, action, value, optionsString) => {
+                const options = JSON.parse(optionsString);
+                // 复用智能元素查找逻辑
+                const findElement = (sel) => {
+                    let element = document.querySelector(sel);
+                    if (element) return element;
+                    
+                    // 框架特定查找
+                    const frameworkSelectors = [
+                        `.el-${sel}`, `[class*="el-${sel}"]`,
+                        `.ant-${sel}`, `[class*="ant-${sel}"]`,
+                        `.v-${sel}`, `[class*="v-${sel}"]`,
+                        `[data-testid="${sel}"]`, `[aria-label*="${sel}"]`
+                    ];
+                    
+                    for (const altSel of frameworkSelectors) {
+                        element = document.querySelector(altSel);
+                        if (element) return element;
+                    }
+                    
+                    return null;
+                };
+                
+                const element = findElement(selector);
+                if (!element) {
+                    throw new Error(`Element not found: ${selector}`);
+                }
+                
+                // 确保元素可见
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                const results = [];
+                
+                switch (action) {
+                    case 'click':
+                        element.click();
+                        results.push(`Clicked: ${selector}`);
+                        break;
+                        
+                    case 'doubleClick':
+                        element.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+                        results.push(`Double clicked: ${selector}`);
+                        break;
+                        
+                    case 'hover':
+                        element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+                        results.push(`Hovered: ${selector}`);
+                        break;
+                        
+                    case 'rightClick':
+                        element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+                        results.push(`Right clicked: ${selector}`);
+                        break;
+                        
+                    case 'select':
+                        if (element.tagName === 'SELECT') {
+                            element.value = value;
+                            element.dispatchEvent(new Event('change', { bubbles: true }));
+                            results.push(`Selected ${value} in: ${selector}`);
+                        } else {
+                            throw new Error('Element is not a select dropdown');
+                        }
+                        break;
+                        
+                    case 'check':
+                        if (element.type === 'checkbox' || element.type === 'radio') {
+                            element.checked = value !== false;
+                            element.dispatchEvent(new Event('change', { bubbles: true }));
+                            results.push(`${element.checked ? 'Checked' : 'Unchecked'}: ${selector}`);
+                        } else {
+                            throw new Error('Element is not a checkbox or radio');
+                        }
+                        break;
+                        
+                    case 'focus':
+                        element.focus();
+                        results.push(`Focused: ${selector}`);
+                        break;
+                        
+                    case 'blur':
+                        element.blur();
+                        results.push(`Blurred: ${selector}`);
+                        break;
+                        
+                    default:
+                        throw new Error(`Unknown action: ${action}`);
+                }
+                
+                return { results, element: element.tagName, action };
+            },
+            args: [selector, action, value, optionsString]
+        });
+        
+        return result[0].result;
+    }
+
+    // 新增：页面内容提取
+    async automationExtractContent(data) {
+        const { selectors = [], type = 'text', options = {} } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        // 序列化复杂参数
+        const selectorsString = JSON.stringify(selectors);
+        const optionsString = JSON.stringify(options);
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (selectorsString, type, optionsString) => {
+                const selectors = JSON.parse(selectorsString);
+                const options = JSON.parse(optionsString);
+                const results = {};
+                
+                const extractFromElement = (element, extractType) => {
+                    switch (extractType) {
+                        case 'text':
+                            return element.textContent?.trim();
+                        case 'html':
+                            return element.innerHTML;
+                        case 'value':
+                            return element.value || element.textContent?.trim();
+                        case 'href':
+                            return element.href;
+                        case 'src':
+                            return element.src;
+                        case 'attributes':
+                            const attrs = {};
+                            for (const attr of element.attributes) {
+                                attrs[attr.name] = attr.value;
+                            }
+                            return attrs;
+                        default:
+                            return element.textContent?.trim();
+                    }
+                };
+                
+                // 如果没有指定选择器，提取常见内容
+                if (selectors.length === 0) {
+                    results.title = document.title;
+                    results.url = window.location.href;
+                    results.headings = Array.from(document.querySelectorAll('h1, h2, h3'))
+                        .map(h => ({ level: h.tagName, text: h.textContent?.trim() }));
+                    results.links = Array.from(document.querySelectorAll('a[href]'))
+                        .slice(0, 20)
+                        .map(a => ({ text: a.textContent?.trim(), href: a.href }));
+                    results.forms = Array.from(document.querySelectorAll('form'))
+                        .map(form => ({
+                            action: form.action,
+                            method: form.method,
+                            fields: Array.from(form.querySelectorAll('input, select, textarea'))
+                                .map(field => ({ name: field.name, type: field.type }))
+                        }));
+                } else {
+                    // 提取指定选择器的内容
+                    selectors.forEach((selector, index) => {
+                        try {
+                            const elements = document.querySelectorAll(selector);
+                            if (elements.length === 1) {
+                                results[`selector_${index}`] = extractFromElement(elements[0], type);
+                            } else if (elements.length > 1) {
+                                results[`selector_${index}`] = Array.from(elements)
+                                    .map(el => extractFromElement(el, type));
+                            } else {
+                                results[`selector_${index}`] = null;
+                            }
+                        } catch (error) {
+                            results[`selector_${index}_error`] = error.message;
+                        }
+                    });
+                }
+                
+                return { 
+                    results, 
+                    timestamp: new Date().toISOString(),
+                    extractedCount: Object.keys(results).length 
+                };
+            },
+            args: [selectorsString, type, optionsString]
+        });
+        
+        return result[0].result;
+    }
+
+    // 新增：智能元素定位系统 - 借鉴Playwright的优势
+    async automationSmartElementLocator(data) {
+        const { selector, action = 'locate', context = {} } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (selector, action, context) => {
+                // 智能元素定位器类 - 借鉴Playwright的定位策略
+                class SmartElementLocator {
+                    constructor() {
+                        this.strategies = [
+                            this.byExactSelector.bind(this),
+                            this.byFrameworkSpecific.bind(this),
+                            this.bySemanticAttributes.bind(this),
+                            this.byTextContent.bind(this),
+                            this.byVisualPosition.bind(this),
+                            this.byFormContext.bind(this)
+                        ];
+                    }
+                    
+                    // 策略1：精确选择器匹配
+                    byExactSelector(selector) {
+                        const elements = document.querySelectorAll(selector);
+                        return Array.from(elements).map(el => ({
+                            element: el,
+                            confidence: 1.0,
+                            method: 'exact-selector',
+                            ref: this.generateRef(el)
+                        }));
+                    }
+                    
+                    // 策略2：框架特定选择器
+                    byFrameworkSpecific(selector) {
+                        const results = [];
+                        
+                        // Vue/Element UI 特定
+                        const vueSelectors = [
+                            `.el-${selector}`,
+                            `[class*="el-${selector}"]`,
+                            `.el-input__inner[placeholder*="${selector}"]`,
+                            `.el-form-item [placeholder*="${selector}"]`,
+                            `[v-model*="${selector}"]`
+                        ];
+                        
+                        // React/Ant Design 特定
+                        const reactSelectors = [
+                            `.ant-${selector}`,
+                            `[class*="ant-${selector}"]`,
+                            `.ant-input[placeholder*="${selector}"]`,
+                            `[data-testid*="${selector}"]`
+                        ];
+                        
+                        // Vue/Vuetify 特定
+                        const vuetifySelectors = [
+                            `.v-${selector}`,
+                            `[class*="v-${selector}"]`,
+                            `.v-text-field input[placeholder*="${selector}"]`
+                        ];
+                        
+                        const allFrameworkSelectors = [
+                            ...vueSelectors, 
+                            ...reactSelectors, 
+                            ...vuetifySelectors
+                        ];
+                        
+                        allFrameworkSelectors.forEach(sel => {
+                            try {
+                                const elements = document.querySelectorAll(sel);
+                                elements.forEach(el => {
+                                    results.push({
+                                        element: el,
+                                        confidence: 0.8,
+                                        method: 'framework-specific',
+                                        ref: this.generateRef(el),
+                                        selector: sel
+                                    });
+                                });
+                            } catch (e) {
+                                // 忽略无效选择器
+                            }
+                        });
+                        
+                        return results;
+                    }
+                    
+                    // 策略3：语义属性匹配
+                    bySemanticAttributes(selector) {
+                        const results = [];
+                        const semanticSelectors = [
+                            `[aria-label*="${selector}"]`,
+                            `[title*="${selector}"]`,
+                            `[placeholder*="${selector}"]`,
+                            `[data-testid*="${selector}"]`,
+                            `[data-test*="${selector}"]`,
+                            `[data-cy*="${selector}"]`,
+                            `[name*="${selector}"]`,
+                            `[id*="${selector}"]`,
+                            `[class*="${selector}"]`
+                        ];
+                        
+                        semanticSelectors.forEach(sel => {
+                            try {
+                                const elements = document.querySelectorAll(sel);
+                                elements.forEach(el => {
+                                    results.push({
+                                        element: el,
+                                        confidence: 0.7,
+                                        method: 'semantic-attributes',
+                                        ref: this.generateRef(el),
+                                        matchedAttribute: sel
+                                    });
+                                });
+                            } catch (e) {
+                                // 忽略无效选择器
+                            }
+                        });
+                        
+                        return results;
+                    }
+                    
+                    // 策略4：文本内容匹配
+                    byTextContent(selector) {
+                        const results = [];
+                        const allElements = document.querySelectorAll('*');
+                        
+                        allElements.forEach(el => {
+                            const text = el.textContent?.trim().toLowerCase();
+                            const selectorLower = selector.toLowerCase();
+                            
+                            if (text && (
+                                text === selectorLower ||
+                                text.includes(selectorLower) ||
+                                el.innerText?.toLowerCase().includes(selectorLower)
+                            )) {
+                                let confidence = 0.6;
+                                if (text === selectorLower) confidence = 0.9;
+                                else if (text.includes(selectorLower)) confidence = 0.7;
+                                
+                                results.push({
+                                    element: el,
+                                    confidence,
+                                    method: 'text-content',
+                                    ref: this.generateRef(el),
+                                    matchedText: text
+                                });
+                            }
+                        });
+                        
+                        return results;
+                    }
+                    
+                    // 策略5：视觉位置匹配
+                    byVisualPosition(selector) {
+                        const results = [];
+                        
+                        // 查找可能的标签元素
+                        const labels = document.querySelectorAll('label');
+                        labels.forEach(label => {
+                            const labelText = label.textContent?.trim().toLowerCase();
+                            if (labelText && labelText.includes(selector.toLowerCase())) {
+                                // 查找关联的输入元素
+                                let targetElement = null;
+                                
+                                // 方法1：通过for属性
+                                if (label.htmlFor) {
+                                    targetElement = document.getElementById(label.htmlFor);
+                                }
+                                
+                                // 方法2：查找相邻的输入元素
+                                if (!targetElement) {
+                                    targetElement = label.querySelector('input, select, textarea') ||
+                                                  label.nextElementSibling?.querySelector('input, select, textarea') ||
+                                                  label.parentElement?.querySelector('input, select, textarea');
+                                }
+                                
+                                if (targetElement) {
+                                    results.push({
+                                        element: targetElement,
+                                        confidence: 0.8,
+                                        method: 'visual-position',
+                                        ref: this.generateRef(targetElement),
+                                        associatedLabel: labelText
+                                    });
+                                }
+                            }
+                        });
+                        
+                        return results;
+                    }
+                    
+                    // 策略6：表单上下文匹配
+                    byFormContext(selector) {
+                        const results = [];
+                        const forms = document.querySelectorAll('form');
+                        
+                        forms.forEach(form => {
+                            const formInputs = form.querySelectorAll('input, select, textarea');
+                            formInputs.forEach(input => {
+                                const context = this.getInputContext(input);
+                                if (context.toLowerCase().includes(selector.toLowerCase())) {
+                                    results.push({
+                                        element: input,
+                                        confidence: 0.75,
+                                        method: 'form-context',
+                                        ref: this.generateRef(input),
+                                        context: context
+                                    });
+                                }
+                            });
+                        });
+                        
+                        return results;
+                    }
+                    
+                    // 生成元素引用ID
+                    generateRef(element) {
+                        if (element.id) return `#${element.id}`;
+                        if (element.name) return `[name="${element.name}"]`;
+                        
+                        // 生成基于路径的ref
+                        const path = this.getElementPath(element);
+                        return `ref-${btoa(path).substring(0, 12)}`;
+                    }
+                    
+                    // 获取元素路径
+                    getElementPath(element) {
+                        const path = [];
+                        let current = element;
+                        
+                        while (current && current.nodeType === Node.ELEMENT_NODE) {
+                            let selector = current.nodeName.toLowerCase();
+                            
+                            if (current.id) {
+                                selector += `#${current.id}`;
+                                path.unshift(selector);
+                                break;
+                            } else {
+                                let sibling = current;
+                                let nth = 1;
+                                while (sibling = sibling.previousElementSibling) {
+                                    if (sibling.nodeName.toLowerCase() === selector) nth++;
+                                }
+                                if (nth > 1) selector += `:nth-of-type(${nth})`;
+                            }
+                            
+                            path.unshift(selector);
+                            current = current.parentNode;
+                        }
+                        
+                        return path.join(' > ');
+                    }
+                    
+                    // 获取输入元素的上下文信息
+                    getInputContext(input) {
+                        const contexts = [];
+                        
+                        // 检查placeholder
+                        if (input.placeholder) contexts.push(input.placeholder);
+                        
+                        // 检查相关标签
+                        const label = document.querySelector(`label[for="${input.id}"]`) ||
+                                    input.closest('label') ||
+                                    input.previousElementSibling?.tagName === 'LABEL' ? input.previousElementSibling : null;
+                        
+                        if (label) contexts.push(label.textContent?.trim());
+                        
+                        // 检查父元素文本
+                        const parent = input.parentElement;
+                        if (parent) {
+                            const parentText = parent.textContent?.replace(input.value || '', '').trim();
+                            if (parentText && parentText.length < 100) {
+                                contexts.push(parentText);
+                            }
+                        }
+                        
+                        return contexts.filter(Boolean).join(' ');
+                    }
+                    
+                    // 主定位方法
+                    locate(selector) {
+                        const allResults = [];
+                        
+                        // 执行所有策略
+                        this.strategies.forEach(strategy => {
+                            try {
+                                const results = strategy(selector);
+                                allResults.push(...results);
+                            } catch (error) {
+                                console.warn('定位策略执行失败:', error);
+                            }
+                        });
+                        
+                        // 去重并按置信度排序
+                        const uniqueResults = this.deduplicateResults(allResults);
+                        return uniqueResults.sort((a, b) => b.confidence - a.confidence);
+                    }
+                    
+                    // 去重结果
+                    deduplicateResults(results) {
+                        const unique = new Map();
+                        
+                        results.forEach(result => {
+                            const key = result.element;
+                            if (!unique.has(key) || unique.get(key).confidence < result.confidence) {
+                                unique.set(key, result);
+                            }
+                        });
+                        
+                        return Array.from(unique.values());
+                    }
+                }
+                
+                // 执行定位
+                const locator = new SmartElementLocator();
+                
+                if (action === 'locate') {
+                    const results = locator.locate(selector);
+                    return {
+                        success: true,
+                        elements: results.map(r => ({
+                            ref: r.ref,
+                            confidence: r.confidence,
+                            method: r.method,
+                            tagName: r.element.tagName,
+                            text: r.element.textContent?.substring(0, 100) || '',
+                            attributes: {
+                                id: r.element.id || '',
+                                name: r.element.name || '',
+                                class: r.element.className || '',
+                                placeholder: r.element.placeholder || ''
+                            }
+                        })),
+                        total: results.length
+                    };
+                }
+                
+                return { success: false, error: 'Unknown action' };
+            },
+            args: [selector, action, context]
+        });
+        
+        return result[0].result;
+    }
+
+    // 新增：智能表单结构分析
+    async automationAnalyzeFormStructure(data) {
+        const { formSelector = 'form', includeHiddenFields = false, framework = 'auto' } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (formSelector, includeHiddenFields, framework) => {
+                // 智能表单分析器类
+                class SmartFormAnalyzer {
+                    constructor() {
+                        this.framework = this.detectFramework(framework);
+                        this.fieldMappings = {
+                            // 中文字段映射
+                            '用户名': ['username', 'user', 'login', 'account'],
+                            '账号': ['username', 'account', 'user'],
+                            '密码': ['password', 'pwd', 'pass'],
+                            '邮箱': ['email', 'mail'],
+                            '电子邮件': ['email', 'mail'],
+                            '手机': ['phone', 'mobile', 'tel'],
+                            '电话': ['phone', 'tel'],
+                            '姓名': ['name', 'fullname'],
+                            '名字': ['firstname', 'fname'],
+                            '姓氏': ['lastname', 'lname'],
+                            '年龄': ['age'],
+                            '性别': ['gender', 'sex'],
+                            '地址': ['address'],
+                            '公司': ['company', 'corporation'],
+                            '职位': ['position', 'job', 'title'],
+                            
+                            // 英文字段映射
+                            'username': ['username', 'user', 'login'],
+                            'password': ['password', 'pwd', 'pass'],
+                            'email': ['email', 'mail', 'e-mail'],
+                            'phone': ['phone', 'tel', 'mobile'],
+                            'name': ['name', 'fullname'],
+                            'firstname': ['firstname', 'fname'],
+                            'lastname': ['lastname', 'lname']
+                        };
+                    }
+                    
+                    detectFramework(providedFramework) {
+                        if (providedFramework !== 'auto') return providedFramework;
+                        
+                        // 自动检测框架
+                        if (window.Vue || document.querySelector('[data-v-]')) return 'vue';
+                        if (window.React || document.querySelector('[data-reactroot]')) return 'react';
+                        if (window.angular) return 'angular';
+                        if (document.querySelector('.el-')) return 'element-ui';
+                        if (document.querySelector('.ant-')) return 'ant-design';
+                        if (document.querySelector('.v-')) return 'vuetify';
+                        
+                        return 'vanilla';
+                    }
+                    
+                    analyzePage() {
+                        const forms = this.findForms(formSelector);
+                        const analysis = {
+                            framework: this.framework,
+                            totalForms: forms.length,
+                            forms: forms.map(form => this.analyzeForm(form)),
+                            pageInfo: {
+                                title: document.title,
+                                url: window.location.href,
+                                framework: this.framework
+                            }
+                        };
+                        
+                        return analysis;
+                    }
+                    
+                    findForms(selector) {
+                        let forms = [];
+                        
+                        // 1. 查找传统表单
+                        const traditionalForms = document.querySelectorAll(selector);
+                        forms.push(...Array.from(traditionalForms));
+                        
+                        // 2. 查找框架特定的表单容器
+                        const frameworkSelectors = {
+                            'vue': ['.el-form', '[class*="form"]'],
+                            'element-ui': ['.el-form'],
+                            'ant-design': ['.ant-form'],
+                            'vuetify': ['.v-form'],
+                            'react': ['[class*="form"]', 'form']
+                        };
+                        
+                        const selectors = frameworkSelectors[this.framework] || [];
+                        selectors.forEach(sel => {
+                            const elements = document.querySelectorAll(sel);
+                            elements.forEach(el => {
+                                if (!forms.includes(el)) forms.push(el);
+                            });
+                        });
+                        
+                        // 3. 如果没有找到表单，查找包含输入元素的容器
+                        if (forms.length === 0) {
+                            const containers = document.querySelectorAll('div, section, main');
+                            containers.forEach(container => {
+                                const inputs = container.querySelectorAll('input, select, textarea');
+                                if (inputs.length >= 2) { // 至少有2个输入元素
+                                    forms.push(container);
+                                }
+                            });
+                        }
+                        
+                        return forms;
+                    }
+                    
+                    analyzeForm(form) {
+                        const formInfo = {
+                            selector: this.generateSelector(form),
+                            tagName: form.tagName,
+                            id: form.id || '',
+                            className: form.className || '',
+                            action: form.action || '',
+                            method: form.method || 'GET',
+                            fields: [],
+                            submitButtons: [],
+                            fieldSuggestions: {}
+                        };
+                        
+                        // 分析表单字段
+                        const inputs = form.querySelectorAll('input, select, textarea');
+                        inputs.forEach(input => {
+                            if (!includeHiddenFields && input.type === 'hidden') return;
+                            
+                            const fieldInfo = this.analyzeField(input);
+                            formInfo.fields.push(fieldInfo);
+                            
+                            // 生成字段建议
+                            const suggestion = this.generateFieldSuggestion(fieldInfo);
+                            if (suggestion) {
+                                formInfo.fieldSuggestions[suggestion.key] = suggestion;
+                            }
+                        });
+                        
+                        // 查找提交按钮
+                        const buttons = form.querySelectorAll('button, input[type="submit"], input[type="button"]');
+                        buttons.forEach(btn => {
+                            formInfo.submitButtons.push({
+                                selector: this.generateSelector(btn),
+                                text: btn.textContent?.trim() || btn.value || '',
+                                type: btn.type || 'button',
+                                className: btn.className || ''
+                            });
+                        });
+                        
+                        return formInfo;
+                    }
+                    
+                    analyzeField(input) {
+                        const context = this.getFieldContext(input);
+                        
+                        return {
+                            selector: this.generateSelector(input),
+                            type: input.type || 'text',
+                            name: input.name || '',
+                            id: input.id || '',
+                            placeholder: input.placeholder || '',
+                            required: input.required || false,
+                            disabled: input.disabled || false,
+                            value: input.value || '',
+                            className: input.className || '',
+                            label: context.label,
+                            context: context.fullContext,
+                            tagName: input.tagName
+                        };
+                    }
+                    
+                    getFieldContext(input) {
+                        const contexts = [];
+                        let label = '';
+                        
+                        // 1. 查找关联的label
+                        if (input.id) {
+                            const labelEl = document.querySelector(`label[for="${input.id}"]`);
+                            if (labelEl) {
+                                label = labelEl.textContent?.trim() || '';
+                                contexts.push(label);
+                            }
+                        }
+                        
+                        // 2. 查找父级label
+                        const parentLabel = input.closest('label');
+                        if (parentLabel && !label) {
+                            label = parentLabel.textContent?.replace(input.value || '', '').trim() || '';
+                            contexts.push(label);
+                        }
+                        
+                        // 3. 查找相邻元素
+                        const previousSibling = input.previousElementSibling;
+                        if (previousSibling && ['LABEL', 'SPAN', 'DIV'].includes(previousSibling.tagName)) {
+                            const text = previousSibling.textContent?.trim();
+                            if (text && text.length < 50) {
+                                contexts.push(text);
+                                if (!label) label = text;
+                            }
+                        }
+                        
+                        // 4. 检查placeholder
+                        if (input.placeholder) {
+                            contexts.push(input.placeholder);
+                            if (!label) label = input.placeholder;
+                        }
+                        
+                        // 5. 检查父容器的文本
+                        const parent = input.parentElement;
+                        if (parent) {
+                            const parentText = parent.textContent?.replace(input.value || '', '').trim();
+                            if (parentText && parentText.length < 100) {
+                                contexts.push(parentText);
+                            }
+                        }
+                        
+                        return {
+                            label: label,
+                            fullContext: contexts.filter(Boolean).join(' | ')
+                        };
+                    }
+                    
+                    generateFieldSuggestion(fieldInfo) {
+                        const text = (fieldInfo.label + ' ' + fieldInfo.placeholder + ' ' + fieldInfo.name).toLowerCase();
+                        
+                        // 查找匹配的字段类型
+                        for (const [chineseKey, englishKeys] of Object.entries(this.fieldMappings)) {
+                            if (text.includes(chineseKey.toLowerCase()) || 
+                                englishKeys.some(key => text.includes(key.toLowerCase()))) {
+                                
+                                return {
+                                    key: englishKeys[0], // 使用第一个英文键作为标准键
+                                    selector: fieldInfo.selector,
+                                    confidence: this.calculateConfidence(text, chineseKey, englishKeys),
+                                    matchedTerms: [chineseKey, ...englishKeys].filter(term => 
+                                        text.includes(term.toLowerCase())
+                                    ),
+                                    fieldInfo: fieldInfo
+                                };
+                            }
+                        }
+                        
+                        return null;
+                    }
+                    
+                    calculateConfidence(text, chineseKey, englishKeys) {
+                        let confidence = 0.3; // 基础置信度
+                        
+                        // 精确匹配加分
+                        if (text === chineseKey.toLowerCase() || englishKeys.includes(text)) {
+                            confidence = 0.9;
+                        }
+                        // 包含匹配加分
+                        else if (text.includes(chineseKey.toLowerCase()) || 
+                                 englishKeys.some(key => text.includes(key))) {
+                            confidence = 0.7;
+                        }
+                        
+                        return confidence;
+                    }
+                    
+                    generateSelector(element) {
+                        if (element.id) return `#${element.id}`;
+                        if (element.name) return `[name="${element.name}"]`;
+                        
+                        // 生成复合选择器
+                        let selector = element.tagName.toLowerCase();
+                        if (element.className) {
+                            const classes = element.className.split(' ').filter(Boolean);
+                            if (classes.length > 0) {
+                                selector += '.' + classes.join('.');
+                            }
+                        }
+                        
+                        return selector;
+                    }
+                }
+                
+                // 执行分析
+                const analyzer = new SmartFormAnalyzer();
+                return analyzer.analyzePage();
+            },
+            args: [formSelector, includeHiddenFields, framework]
+        });
+        
+        return result[0].result;
+    }
+
+    // 通用的 Markdown 渲染函数
+    renderMarkdown(text) {
+        let renderedContent = text;
+        try {
+            // 检查是否有marked库可用
+            if (typeof marked !== 'undefined') {
+                // 配置marked选项
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true
+                });
+                renderedContent = marked.parse(text);
+            }
+        } catch (error) {
+            console.warn('Markdown渲染失败，使用原始文本:', error);
+            // 如果markdown渲染失败，至少进行基本的换行处理
+            renderedContent = text.replace(/\n/g, '<br>');
+        }
+        return renderedContent;
+    }
 }
 
-// 初始化
-window.mcpFeedbackPanel = new MCPFeedbackSidePanel(); 
+// 初始化面板
+document.addEventListener('DOMContentLoaded', () => {
+    new MCPFeedbackSidePanel();
+}); 

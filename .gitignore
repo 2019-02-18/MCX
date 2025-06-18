@@ -2,6 +2,7 @@ mcp-feedback-enhanced/
 build/
 dist/
 wheels/
+node_modules/
 *.egg-info
 
 # Virtual environments

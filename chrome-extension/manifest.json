@@ -36,6 +36,10 @@
     "default_path": "sidepanel.html"
   },
   
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  },
+  
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -45,8 +49,15 @@
   
   "web_accessible_resources": [
     {
-      "resources": ["sidepanel.css", "element-inspector.js"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "sidepanel.html",
+        "sidepanel.css",
+        "element-inspector.js",
+        "lib/marked.min.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

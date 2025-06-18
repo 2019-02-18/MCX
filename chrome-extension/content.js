@@ -2229,6 +2229,18 @@ class MCPFeedbackContent {
                 case 'waitForElement':
                     return await this.automateWaitForElement(request.data);
 
+                // 新增：智能表单填写
+                case 'fillForm':
+                    return await this.automateSmartFillForm(request.data);
+
+                // 新增：智能元素交互
+                case 'interactElement':
+                    return await this.automateSmartInteract(request.data);
+
+                // 新增：内容提取
+                case 'extractContent':
+                    return await this.automateExtractContent(request.data);
+
                 default:
                     throw new Error(`Unknown automation command: ${request.type}`);
             }
@@ -2238,6 +2250,542 @@ class MCPFeedbackContent {
         }
     }
 
+    // 新增：智能表单填写方法
+    async automateSmartFillForm(data) {
+        const { formData, submitAfter = false } = data;
+        console.log('智能表单填写:', formData);
+
+        const results = [];
+        let successCount = 0;
+
+        for (const [fieldName, value] of Object.entries(formData)) {
+            try {
+                const result = await this.smartFillField(fieldName, value);
+                results.push(result);
+                if (result.success) successCount++;
+            } catch (error) {
+                results.push({
+                    success: false,
+                    fieldName,
+                    error: error.message
+                });
+            }
+        }
+
+        // 如果需要提交表单
+        if (submitAfter) {
+            try {
+                const submitButton = this.findSubmitButton();
+                if (submitButton) {
+                    await this.waitForDelay(500); // 等待表单状态更新
+                    submitButton.click();
+                    results.push({ success: true, action: 'submit', message: 'Form submitted' });
+                }
+            } catch (error) {
+                results.push({ success: false, action: 'submit', error: error.message });
+            }
+        }
+
+        return {
+            success: successCount > 0,
+            totalFields: Object.keys(formData).length,
+            successCount,
+            results
+        };
+    }
+
+    // 智能字段填写
+    async smartFillField(fieldName, value) {
+        console.log(`填写字段: ${fieldName} = ${value}`);
+
+        // 多种策略尝试定位字段
+        const strategies = [
+            // 策略1: 基于Vue组件的label识别
+            () => this.findFieldByVueLabel(fieldName),
+            // 策略2: 基于placeholder识别
+            () => this.findFieldByPlaceholder(fieldName),
+            // 策略3: 基于label元素识别
+            () => this.findFieldByLabel(fieldName),
+            // 策略4: 基于name属性识别
+            () => this.findFieldByName(fieldName),
+            // 策略5: 基于id识别
+            () => this.findFieldById(fieldName),
+            // 策略6: 智能文本匹配
+            () => this.findFieldBySmartText(fieldName)
+        ];
+
+        let element = null;
+        let strategy = '';
+
+        for (let i = 0; i < strategies.length; i++) {
+            element = strategies[i]();
+            if (element) {
+                strategy = `strategy_${i + 1}`;
+                break;
+            }
+        }
+
+        if (!element) {
+            throw new Error(`Field not found: ${fieldName}`);
+        }
+
+        // 根据元素类型进行智能填写
+        const result = await this.smartFillElement(element, value, fieldName);
+        result.strategy = strategy;
+        result.fieldName = fieldName;
+
+        return result;
+    }
+
+    // 基于Vue组件label查找字段
+    findFieldByVueLabel(labelText) {
+        // 查找包含指定文本的Vue表单项
+        const formItems = document.querySelectorAll('.el-form-item');
+        for (const item of formItems) {
+            const label = item.querySelector('.el-form-item__label');
+            if (label && this.textMatches(label.textContent, labelText)) {
+                // 查找对应的输入控件
+                return this.findInputInFormItem(item);
+            }
+        }
+        return null;
+    }
+
+    // 在表单项中查找输入控件
+    findInputInFormItem(formItem) {
+        // 按优先级查找各种输入控件
+        const selectors = [
+            'input[type="text"]',
+            'input:not([type="hidden"])',
+            'textarea',
+            '.el-input input',
+            '.el-textarea textarea',
+            '.el-select',
+            '.el-date-editor',
+            '.el-time-picker',
+            '.el-checkbox',
+            '.el-radio'
+        ];
+
+        for (const selector of selectors) {
+            const element = formItem.querySelector(selector);
+            if (element && this.isInteractableElement(element)) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    // 检查元素是否可交互
+    isInteractableElement(element) {
+        if (!element) return false;
+        
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+
+        return !element.disabled &&
+               style.display !== 'none' &&
+               style.visibility !== 'hidden' &&
+               rect.width > 0 &&
+               rect.height > 0;
+    }
+
+    // 文本匹配函数
+    textMatches(text1, text2) {
+        if (!text1 || !text2) return false;
+        
+        const normalize = (str) => str.replace(/[*\s:：]/g, '').toLowerCase();
+        return normalize(text1).includes(normalize(text2)) || 
+               normalize(text2).includes(normalize(text1));
+    }
+
+    // 基于placeholder查找
+    findFieldByPlaceholder(fieldName) {
+        const selector = `input[placeholder*="${fieldName}"], textarea[placeholder*="${fieldName}"]`;
+        return document.querySelector(selector);
+    }
+
+    // 基于label查找
+    findFieldByLabel(fieldName) {
+        const labels = document.querySelectorAll('label');
+        for (const label of labels) {
+            if (this.textMatches(label.textContent, fieldName)) {
+                const target = label.getAttribute('for');
+                if (target) {
+                    return document.getElementById(target);
+                }
+                // 查找label内部的输入元素
+                const input = label.querySelector('input, textarea, select');
+                if (input) return input;
+            }
+        }
+        return null;
+    }
+
+    // 基于name属性查找
+    findFieldByName(fieldName) {
+        const normalizedName = fieldName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const inputs = document.querySelectorAll('input, textarea, select');
+        
+        for (const input of inputs) {
+            const name = (input.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (name.includes(normalizedName) || normalizedName.includes(name)) {
+                return input;
+            }
+        }
+        return null;
+    }
+
+    // 基于id查找
+    findFieldById(fieldName) {
+        const normalizedName = fieldName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const inputs = document.querySelectorAll('input, textarea, select');
+        
+        for (const input of inputs) {
+            const id = (input.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (id.includes(normalizedName) || normalizedName.includes(id)) {
+                return input;
+            }
+        }
+        return null;
+    }
+
+    // 智能文本匹配查找
+    findFieldBySmartText(fieldName) {
+        // 查找附近有相关文本的输入框
+        const inputs = document.querySelectorAll('input, textarea, select');
+        
+        for (const input of inputs) {
+            // 检查父级元素中是否包含相关文本
+            let parent = input.parentElement;
+            let level = 0;
+            
+            while (parent && level < 3) {
+                if (this.textMatches(parent.textContent, fieldName)) {
+                    return input;
+                }
+                parent = parent.parentElement;
+                level++;
+            }
+        }
+        return null;
+    }
+
+    // 智能填写元素
+    async smartFillElement(element, value, fieldName) {
+        console.log(`智能填写元素:`, element.tagName, element.type, value);
+
+        // 滚动到元素位置
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await this.waitForDelay(300);
+
+        // 根据元素类型选择填写策略
+        if (element.classList.contains('el-select') || element.closest('.el-select')) {
+            return await this.fillVueSelect(element, value, fieldName);
+        } else if (element.classList.contains('el-date-editor') || element.closest('.el-date-editor')) {
+            return await this.fillVueDatePicker(element, value, fieldName);
+        } else if (element.type === 'checkbox' || element.classList.contains('el-checkbox')) {
+            return await this.fillVueCheckbox(element, value, fieldName);
+        } else if (element.type === 'radio' || element.classList.contains('el-radio')) {
+            return await this.fillVueRadio(element, value, fieldName);
+        } else if (element.tagName === 'TEXTAREA' || element.type === 'text') {
+            return await this.fillVueInput(element, value, fieldName);
+        } else {
+            // 默认文本填写
+            return await this.fillVueInput(element, value, fieldName);
+        }
+    }
+
+    // Vue Select填写
+    async fillVueSelect(element, value, fieldName) {
+        const selectWrapper = element.closest('.el-select') || element;
+        const input = selectWrapper.querySelector('input') || selectWrapper;
+
+        // 点击打开下拉框
+        selectWrapper.click();
+        await this.waitForDelay(500);
+
+        // 查找匹配的选项
+        const options = document.querySelectorAll('.el-option');
+        let selectedOption = null;
+
+        for (const option of options) {
+            if (this.textMatches(option.textContent, value)) {
+                selectedOption = option;
+                break;
+            }
+        }
+
+        if (selectedOption) {
+            selectedOption.click();
+            await this.waitForDelay(200);
+            return { success: true, message: `Selected option: ${value}` };
+        } else {
+            // 如果没找到选项，尝试直接输入
+            if (input) {
+                input.focus();
+                input.value = value;
+                this.triggerVueEvents(input);
+            }
+            return { success: false, message: `Option not found: ${value}` };
+        }
+    }
+
+    // Vue DatePicker填写
+    async fillVueDatePicker(element, value, fieldName) {
+        const dateWrapper = element.closest('.el-date-editor') || element;
+        const input = dateWrapper.querySelector('input') || dateWrapper;
+
+        // 聚焦并填写日期
+        input.focus();
+        input.value = value;
+        this.triggerVueEvents(input);
+
+        // 失去焦点以触发日期解析
+        input.blur();
+        await this.waitForDelay(200);
+
+        return { success: true, message: `Date filled: ${value}` };
+    }
+
+    // Vue Checkbox填写
+    async fillVueCheckbox(element, shouldCheck, fieldName) {
+        const checkboxWrapper = element.closest('.el-checkbox') || element;
+        const isCurrentlyChecked = element.checked || checkboxWrapper.classList.contains('is-checked');
+        
+        const needsToggle = (shouldCheck && !isCurrentlyChecked) || (!shouldCheck && isCurrentlyChecked);
+        
+        if (needsToggle) {
+            checkboxWrapper.click();
+            await this.waitForDelay(200);
+        }
+
+        return { success: true, message: `Checkbox ${shouldCheck ? 'checked' : 'unchecked'}` };
+    }
+
+    // Vue Radio填写
+    async fillVueRadio(element, value, fieldName) {
+        // 查找匹配的radio选项
+        const radioGroup = element.closest('.el-radio-group');
+        if (radioGroup) {
+            const radios = radioGroup.querySelectorAll('.el-radio');
+            for (const radio of radios) {
+                if (this.textMatches(radio.textContent, value)) {
+                    radio.click();
+                    await this.waitForDelay(200);
+                    return { success: true, message: `Radio selected: ${value}` };
+                }
+            }
+        } else {
+            // 单个radio
+            if (this.textMatches(element.textContent || element.value, value)) {
+                element.click();
+                return { success: true, message: `Radio selected: ${value}` };
+            }
+        }
+
+        return { success: false, message: `Radio option not found: ${value}` };
+    }
+
+    // Vue Input填写
+    async fillVueInput(element, value, fieldName) {
+        // 聚焦元素
+        element.focus();
+        await this.waitForDelay(100);
+
+        // 清空现有值
+        element.value = '';
+        this.triggerVueEvents(element);
+
+        // 模拟逐字符输入
+        for (let i = 0; i < value.length; i++) {
+            element.value += value[i];
+            this.triggerVueEvents(element);
+            await this.waitForDelay(30); // 模拟真实输入
+        }
+
+        // 失去焦点
+        element.blur();
+        await this.waitForDelay(100);
+
+        return { success: true, message: `Input filled: ${value}` };
+    }
+
+    // 触发Vue相关事件
+    triggerVueEvents(element) {
+        // 触发常见的Vue事件
+        const events = ['input', 'change', 'blur', 'focus'];
+        events.forEach(eventType => {
+            element.dispatchEvent(new Event(eventType, { bubbles: true }));
+        });
+
+        // 触发Vue特定事件
+        if (element.__vue__ || element._vueParentComponent) {
+            // Vue 2/3 兼容性
+            const changeEvent = new CustomEvent('vue:change', { 
+                bubbles: true, 
+                detail: { value: element.value }
+            });
+            element.dispatchEvent(changeEvent);
+        }
+    }
+
+    // 查找提交按钮
+    findSubmitButton() {
+        const selectors = [
+            'button[type="submit"]',
+            'input[type="submit"]',
+            '.el-button--primary',
+            'button:contains("提交")',
+            'button:contains("立即创建")',
+            'button:contains("确定")',
+            'button:contains("保存")'
+        ];
+
+        for (const selector of selectors) {
+            const button = document.querySelector(selector);
+            if (button && this.isInteractableElement(button)) {
+                return button;
+            }
+        }
+
+        // 查找包含提交相关文本的按钮
+        const buttons = document.querySelectorAll('button');
+        for (const button of buttons) {
+            const text = button.textContent.trim();
+            if (/提交|立即创建|确定|保存|submit/i.test(text)) {
+                return button;
+            }
+        }
+
+        return null;
+    }
+
+    // 等待延迟
+    async waitForDelay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    cleanup() {
+        this.stopFeedbackCollection();
+
+        // 清理截图数据
+        this.capturedScreenshots = [];
+        this.selectedFiles = [];
+
+        // 移除样式
+        const styles = document.getElementById('mcp-feedback-styles');
+        if (styles) {
+            styles.remove();
+        }
+    }
+
+    // 新增：智能元素交互
+    async automateSmartInteract(data) {
+        const { selector, action = 'click', value = null, options = {} } = data;
+        console.log('智能元素交互:', selector, action, value);
+
+        const element = document.querySelector(selector);
+        if (!element) {
+            throw new Error(`Element not found: ${selector}`);
+        }
+
+        // 滚动到元素位置
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await this.waitForDelay(300);
+
+        switch (action) {
+            case 'click':
+                element.click();
+                break;
+            case 'doubleClick':
+                element.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+                break;
+            case 'hover':
+                element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+                break;
+            case 'focus':
+                element.focus();
+                break;
+            case 'blur':
+                element.blur();
+                break;
+            case 'select':
+                if (element.tagName === 'SELECT') {
+                    element.value = value;
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                break;
+            default:
+                throw new Error(`Unknown action: ${action}`);
+        }
+
+        return { success: true, message: `Action ${action} performed on ${selector}` };
+    }
+
+    // 新增：内容提取
+    async automateExtractContent(data) {
+        const { selectors = [], type = 'text', options = {} } = data;
+        console.log('内容提取:', selectors, type);
+
+        const results = [];
+
+        if (selectors.length === 0) {
+            // 如果没有指定选择器，返回页面基本信息
+            return {
+                success: true,
+                data: {
+                    url: window.location.href,
+                    title: document.title,
+                    timestamp: new Date().toISOString()
+                }
+            };
+        }
+
+        for (const selector of selectors) {
+            const elements = document.querySelectorAll(selector);
+            const selectorResults = [];
+
+            for (const element of elements) {
+                let content = '';
+                switch (type) {
+                    case 'text':
+                        content = element.textContent?.trim() || '';
+                        break;
+                    case 'html':
+                        content = element.innerHTML;
+                        break;
+                    case 'value':
+                        content = element.value || '';
+                        break;
+                    case 'href':
+                        content = element.href || '';
+                        break;
+                    case 'src':
+                        content = element.src || '';
+                        break;
+                    case 'attributes':
+                        const attrs = {};
+                        for (const attr of element.attributes) {
+                            attrs[attr.name] = attr.value;
+                        }
+                        content = attrs;
+                        break;
+                }
+                selectorResults.push(content);
+            }
+
+            results.push({
+                selector,
+                count: elements.length,
+                content: selectorResults
+            });
+        }
+
+        return { success: true, data: results };
+    }
+
+    // 原来的方法恢复
     // 导航到指定URL
     async automateNavigate(data) {
         const { url, waitForLoad } = data;
@@ -2421,20 +2969,6 @@ class MCPFeedbackContent {
         }
 
         throw new Error(`Element not found within ${timeout}ms: ${selector}`);
-    }
-
-    cleanup() {
-        this.stopFeedbackCollection();
-
-        // 清理截图数据
-        this.capturedScreenshots = [];
-        this.selectedFiles = [];
-
-        // 移除样式
-        const styles = document.getElementById('mcp-feedback-styles');
-        if (styles) {
-            styles.remove();
-        }
     }
 }
 

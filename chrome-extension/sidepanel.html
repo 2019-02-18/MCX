@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>chrome extension</title>
     <link rel="stylesheet" href="sidepanel.css">
+    <script src="lib/marked.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -562,6 +563,121 @@
                 left: 10px;
                 max-width: none;
             }
+        }
+        
+        /* Markdown 渲染样式 */
+        .markdown-content {
+            line-height: 1.6;
+        }
+        
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3,
+        .markdown-content h4,
+        .markdown-content h5,
+        .markdown-content h6 {
+            margin: 16px 0 8px 0;
+            font-weight: 600;
+            color: #323130;
+        }
+        
+        .markdown-content h1 { font-size: 18px; border-bottom: 2px solid #e1e1e1; padding-bottom: 4px; }
+        .markdown-content h2 { font-size: 16px; border-bottom: 1px solid #e1e1e1; padding-bottom: 2px; }
+        .markdown-content h3 { font-size: 15px; }
+        .markdown-content h4 { font-size: 14px; }
+        .markdown-content h5 { font-size: 13px; }
+        .markdown-content h6 { font-size: 12px; }
+        
+        .markdown-content p {
+            margin: 8px 0;
+        }
+        
+        .markdown-content ul,
+        .markdown-content ol {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+        
+        .markdown-content li {
+            margin: 4px 0;
+        }
+        
+        .markdown-content code {
+            background: #f6f6f6;
+            border: 1px solid #e1e1e1;
+            border-radius: 2px;
+            padding: 2px 4px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            color: #d14;
+        }
+        
+        .markdown-content pre {
+            background: #f6f6f6;
+            border: 1px solid #e1e1e1;
+            border-radius: 4px;
+            padding: 12px;
+            margin: 12px 0;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+        }
+        
+        .markdown-content pre code {
+            background: none;
+            border: none;
+            padding: 0;
+            color: inherit;
+        }
+        
+        .markdown-content blockquote {
+            border-left: 4px solid #0078d4;
+            margin: 12px 0;
+            padding: 8px 16px;
+            background: #f8f9fa;
+            color: #605e5c;
+        }
+        
+        .markdown-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 12px 0;
+            font-size: 13px;
+        }
+        
+        .markdown-content th,
+        .markdown-content td {
+            border: 1px solid #e1e1e1;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        
+        .markdown-content th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        
+        .markdown-content a {
+            color: #0078d4;
+            text-decoration: none;
+        }
+        
+        .markdown-content a:hover {
+            text-decoration: underline;
+        }
+        
+        .markdown-content strong {
+            font-weight: 600;
+        }
+        
+        .markdown-content em {
+            font-style: italic;
+        }
+        
+        .markdown-content hr {
+            border: none;
+            border-top: 1px solid #e1e1e1;
+            margin: 16px 0;
         }
     </style>
 </head>
