@@ -247,25 +247,25 @@ export class ChromeFeedbackManager {
       // 验证消息格式
       if (!message || typeof message !== 'object') {
         console.error('Invalid message format from client:', clientId);
-        return;
-      }
+      return;
+    }
 
-      // 根据消息类型识别客户端类型
-      if (message.action === 'init' && message.clientType) {
-        clientInfo.type = message.clientType === 'chrome-extension' ? 'chrome-extension' : 'web-ui';
-        console.error(`Client ${clientId} identified as: ${clientInfo.type}`);
-      }
+    // 根据消息类型识别客户端类型
+    if (message.action === 'init' && message.clientType) {
+      clientInfo.type = message.clientType === 'chrome-extension' ? 'chrome-extension' : 'web-ui';
+      console.error(`Client ${clientId} identified as: ${clientInfo.type}`);
+    }
 
-      switch (message.action) {
-        case 'init':
-          clientInfo.ws.send(JSON.stringify({
-            type: 'initConfirmed',
-            message: 'Initialization confirmed',
-            timestamp: new Date().toISOString()
-          }));
-          break;
+    switch (message.action) {
+      case 'init':
+        clientInfo.ws.send(JSON.stringify({
+          type: 'initConfirmed',
+          message: 'Initialization confirmed',
+          timestamp: new Date().toISOString()
+        }));
+        break;
 
-        case 'submitFeedback':
+      case 'submitFeedback':
           if (message.data) {
             await this.handleFeedbackSubmission(message.data);
           } else {
@@ -300,7 +300,23 @@ export class ChromeFeedbackManager {
           }
           break;
 
-        default:
+        case 'automationResponse':
+          // 处理自动化命令的响应
+          if (message.requestId && this.pendingRequests.has(message.requestId)) {
+            const request = this.pendingRequests.get(message.requestId)!;
+            this.pendingRequests.delete(message.requestId);
+            
+            if (message.success) {
+              request.resolve(message.data || 'Command executed successfully');
+            } else {
+              request.reject(new Error(message.error || 'Automation command failed'));
+            }
+          } else {
+            console.error('Received automation response for unknown request:', message.requestId);
+          }
+        break;
+
+      default:
           console.error('Unknown WebSocket message action:', message.action, 'from client:', clientId);
       }
     } catch (error) {
@@ -316,14 +332,14 @@ export class ChromeFeedbackManager {
         return;
       }
 
-      const feedbackData: FeedbackData = {
-        id: data.feedbackId || Date.now().toString(),
-        timestamp: data.timestamp || new Date().toISOString(),
-        text: data.text || '',
+    const feedbackData: FeedbackData = {
+      id: data.feedbackId || Date.now().toString(),
+      timestamp: data.timestamp || new Date().toISOString(),
+      text: data.text || '',
         images: Array.isArray(data.images) ? data.images : [],
-        metadata: data.metadata || {},
-        source: 'chrome-extension'
-      };
+      metadata: data.metadata || {},
+      source: 'chrome-extension'
+    };
 
       // 验证图片数据
       if (feedbackData.images && feedbackData.images.length > 0) {
@@ -354,7 +370,7 @@ export class ChromeFeedbackManager {
       
       if (!isDirectFeedback) {
         // 只有MCP交互反馈才保存到历史记录
-        this.feedbackHistory.push(feedbackData);
+    this.feedbackHistory.push(feedbackData);
         await this.saveHistory();
         console.error('MCP交互反馈已保存到历史记录:', feedbackData.id);
       } else {
@@ -362,10 +378,10 @@ export class ChromeFeedbackManager {
       }
 
       // 如果有待处理的请求，解决它（这通常是MCP交互）
-      if (data.feedbackId && this.pendingRequests.has(data.feedbackId)) {
-        const request = this.pendingRequests.get(data.feedbackId)!;
-        clearTimeout(request.timeout);
-        this.pendingRequests.delete(data.feedbackId);
+    if (data.feedbackId && this.pendingRequests.has(data.feedbackId)) {
+      const request = this.pendingRequests.get(data.feedbackId)!;
+      clearTimeout(request.timeout);
+      this.pendingRequests.delete(data.feedbackId);
 
         // 如果这是MCP交互，保存完整对话记录
         if (!isDirectFeedback && request.summary) {
@@ -387,14 +403,14 @@ export class ChromeFeedbackManager {
 
         try {
           const content = this.formatFeedbackResult(feedbackData);
-          request.resolve({
+      request.resolve({
             content: content
           });
         } catch (formatError) {
           console.error('Error formatting feedback result:', formatError);
           request.reject(new Error('Failed to format feedback result'));
         }
-      }
+    }
 
       console.error('Feedback received and processed:', feedbackData.id);
     } catch (error) {
@@ -405,8 +421,8 @@ export class ChromeFeedbackManager {
   async requestInteractiveFeedback(args: any): Promise<any> {
     return new Promise(async (resolve, reject) => {
       const { summary = '請提供您的反饋', timeout = 600000, project_directory = '.' } = args;
-      const feedbackId = Date.now().toString();
-
+    const feedbackId = Date.now().toString();
+    
       // 设置实际项目目录
       if (project_directory !== '.') {
         // 如果传入的是绝对路径，直接使用；否则相对于当前目录
@@ -423,13 +439,13 @@ export class ChromeFeedbackManager {
       console.error(`History file: ${this.historyFile}`);
 
       // 查找 Chrome 扩展客户端
-      const chromeExtensionClients = Array.from(this.clients.values()).filter(
-        client => client.type === 'chrome-extension'
-      );
+    const chromeExtensionClients = Array.from(this.clients.values()).filter(
+      client => client.type === 'chrome-extension'
+    );
 
-      if (chromeExtensionClients.length === 0) {
-        throw new Error('No Chrome extension clients connected. Please ensure the Chrome extension is installed and connected.');
-      }
+    if (chromeExtensionClients.length === 0) {
+      throw new Error('No Chrome extension clients connected. Please ensure the Chrome extension is installed and connected.');
+    }
 
       // 设置超时
       const timeoutHandle = setTimeout(() => {
@@ -620,18 +636,18 @@ export class ChromeFeedbackManager {
               
               if (mediaType && base64Data) {
                 // 使用MCP协议标准的图片格式
-                content.push({
-                  type: 'image',
+          content.push({
+            type: 'image',
                   data: base64Data,
                   mimeType: mediaType
                 });
               } else {
                 console.error(`Invalid image format for image ${index}: missing media type or data`);
-              }
+            }
             } else {
               console.error(`Invalid image format for image ${index}: malformed data URL`);
             }
-          } else {
+        } else {
             console.error(`Invalid image data for image ${index}: not a valid data URL`);
           }
         } catch (error) {
@@ -682,6 +698,198 @@ export class ChromeFeedbackManager {
       // 文件不存在或无法读取，使用空历史
       this.conversationHistory = [];
       console.error('No existing conversation history found, starting fresh');
+    }
+  }
+
+  // 新增：浏览器自动化控制方法
+
+  /**
+   * 导航到指定URL
+   */
+  async navigateToUrl(args: any): Promise<any> {
+    const { url, waitForLoad = true, timeout = 30000 } = args;
+    
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      const command = {
+        action: 'automation',
+        type: 'navigate',
+        requestId,
+        data: { url, waitForLoad },
+        timestamp: new Date().toISOString()
+      };
+
+      // 给页面加载留出额外缓冲时间  +2 秒
+      this.sendCommandToExtensions(command, requestId, resolve, reject, timeout + 2000);
+    });
+  }
+
+  /**
+   * 点击页面元素
+   */
+  async clickElement(args: any): Promise<any> {
+    const { selector, waitTime = 1000 } = args;
+    
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      const command = {
+        action: 'automation',
+        type: 'click',
+        requestId,
+        data: { selector, waitTime },
+        timestamp: new Date().toISOString()
+      };
+
+      this.sendCommandToExtensions(command, requestId, resolve, reject, 10000);
+    });
+  }
+
+  /**
+   * 填写输入框
+   */
+  async fillInput(args: any): Promise<any> {
+    const { selector, text, clearFirst = true } = args;
+    
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      const command = {
+        action: 'automation',
+        type: 'fillInput',
+        requestId,
+        data: { selector, text, clearFirst },
+        timestamp: new Date().toISOString()
+      };
+
+      this.sendCommandToExtensions(command, requestId, resolve, reject, 10000);
+    });
+  }
+
+  /**
+   * 执行JavaScript代码
+   */
+  async executeScript(args: any): Promise<any> {
+    const { script, returnResult = true } = args;
+    
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      const command = {
+        action: 'automation',
+        type: 'executeScript',
+        requestId,
+        data: { script, returnResult },
+        timestamp: new Date().toISOString()
+      };
+
+      this.sendCommandToExtensions(command, requestId, resolve, reject, 15000);
+    });
+  }
+
+  /**
+   * 获取页面信息
+   */
+  async getPageInfo(args: any): Promise<any> {
+    const { includeElements = false, elementSelector } = args;
+    
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      const command = {
+        action: 'automation',
+        type: 'getPageInfo',
+        requestId,
+        data: { includeElements, elementSelector },
+        timestamp: new Date().toISOString()
+      };
+
+      this.sendCommandToExtensions(command, requestId, resolve, reject, 10000);
+    });
+  }
+
+  /**
+   * 截取页面截图
+   */
+  async takeScreenshot(args: any): Promise<any> {
+    const { fullPage = false, quality = 80, format = 'png' } = args;
+    
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      const command = {
+        action: 'automation',
+        type: 'takeScreenshot',
+        requestId,
+        data: { fullPage, quality, format },
+        timestamp: new Date().toISOString()
+      };
+
+      this.sendCommandToExtensions(command, requestId, resolve, reject, 15000);
+    });
+  }
+
+  /**
+   * 等待元素出现
+   */
+  async waitForElement(args: any): Promise<any> {
+    const { selector, timeout = 10000 } = args;
+    
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString();
+      const command = {
+        action: 'automation',
+        type: 'waitForElement',
+        requestId,
+        data: { selector, timeout },
+        timestamp: new Date().toISOString()
+      };
+
+      this.sendCommandToExtensions(command, requestId, resolve, reject, timeout + 2000);
+    });
+  }
+
+  /**
+   * 向所有Chrome扩展发送命令
+   */
+  private sendCommandToExtensions(command: any, requestId: string, resolve: Function, reject: Function, timeoutMs: number): void {
+    const chromeExtensions = Array.from(this.clients.values()).filter(client => 
+      client.type === 'chrome-extension' && client.ws.readyState === WebSocket.OPEN
+    );
+
+    if (chromeExtensions.length === 0) {
+      reject(new Error('No Chrome extension connected'));
+      return;
+    }
+
+    // 设置超时
+    const timeout = setTimeout(() => {
+      this.pendingRequests.delete(requestId);
+      reject(new Error(`Command timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    // 存储请求信息
+    this.pendingRequests.set(requestId, {
+      resolve: (result: any) => {
+        clearTimeout(timeout);
+        resolve({
+          content: [{
+            type: 'text',
+            text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+          }]
+        });
+      },
+      reject: (error: Error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+      timeout
+    });
+
+    // 发送命令到第一个可用的Chrome扩展
+    const targetExtension = chromeExtensions[0];
+    try {
+      targetExtension.ws.send(JSON.stringify(command));
+      console.error(`Sent automation command ${command.type} to extension`);
+    } catch (error) {
+      this.pendingRequests.delete(requestId);
+      clearTimeout(timeout);
+      reject(new Error(`Failed to send command: ${error}`));
     }
   }
 } 

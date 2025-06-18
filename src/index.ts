@@ -85,6 +85,143 @@ const tools: Tool[] = [
       type: 'object',
       properties: {}
     }
+  },
+  // 新增：浏览器自动化控制工具
+  {
+    name: 'chrome_navigate_to_url',
+    description: 'Navigate the current browser tab to a specific URL',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'The URL to navigate to'
+        },
+        waitForLoad: {
+          type: 'boolean',
+          description: 'Whether to wait for page load completion',
+          default: true
+        }
+      },
+      required: ['url']
+    }
+  },
+  {
+    name: 'chrome_click_element',
+    description: 'Click on a DOM element using CSS selector',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description: 'CSS selector of the element to click'
+        },
+        waitTime: {
+          type: 'number',
+          description: 'Time to wait after click (ms)',
+          default: 1000
+        }
+      },
+      required: ['selector']
+    }
+  },
+  {
+    name: 'chrome_fill_input',
+    description: 'Fill text into an input field',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description: 'CSS selector of the input element'
+        },
+        text: {
+          type: 'string',
+          description: 'Text to input'
+        },
+        clearFirst: {
+          type: 'boolean',
+          description: 'Whether to clear the input first',
+          default: true
+        }
+      },
+      required: ['selector', 'text']
+    }
+  },
+  {
+    name: 'chrome_execute_script',
+    description: 'Execute JavaScript code in the current page',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        script: {
+          type: 'string',
+          description: 'JavaScript code to execute'
+        },
+        returnResult: {
+          type: 'boolean',
+          description: 'Whether to return the script result',
+          default: true
+        }
+      },
+      required: ['script']
+    }
+  },
+  {
+    name: 'chrome_get_page_info',
+    description: 'Get current page information (title, URL, DOM elements)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        includeElements: {
+          type: 'boolean',
+          description: 'Whether to include interactive elements info',
+          default: false
+        },
+        elementSelector: {
+          type: 'string',
+          description: 'CSS selector to filter elements (optional)'
+        }
+      }
+    }
+  },
+  {
+    name: 'chrome_take_screenshot',
+    description: 'Take a screenshot of the current page',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fullPage: {
+          type: 'boolean',
+          description: 'Whether to capture the full page',
+          default: false
+        },
+        quality: {
+          type: 'number',
+          description: 'Image quality (1-100)',
+          default: 80
+        }
+      }
+    }
+  },
+  {
+    name: 'chrome_wait_for_element',
+    description: 'Wait for an element to appear on the page',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description: 'CSS selector of the element to wait for'
+        },
+        timeout: {
+          type: 'number',
+          description: 'Maximum wait time in milliseconds',
+          default: 10000
+        }
+      },
+      required: ['selector']
+    }
   }
 ];
 
@@ -110,6 +247,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'chrome_get_extension_status':
         return await feedbackManager.getExtensionStatus();
+
+      // 新增：浏览器自动化控制工具处理
+      case 'chrome_navigate_to_url':
+        return await feedbackManager.navigateToUrl(args);
+
+      case 'chrome_click_element':
+        return await feedbackManager.clickElement(args);
+
+      case 'chrome_fill_input':
+        return await feedbackManager.fillInput(args);
+
+      case 'chrome_execute_script':
+        return await feedbackManager.executeScript(args);
+
+      case 'chrome_get_page_info':
+        return await feedbackManager.getPageInfo(args);
+
+      case 'chrome_take_screenshot':
+        return await feedbackManager.takeScreenshot(args);
+
+      case 'chrome_wait_for_element':
+        return await feedbackManager.waitForElement(args);
 
       default:
         throw new Error(`Unknown tool: ${name}`);

@@ -98,7 +98,17 @@ class MCPFeedbackContent {
                         }
                         sendResponse({ success: true });
                         break;
-                        
+
+                    case 'automation':
+                        console.log('收到自动化命令:', request);
+                        this.handleAutomationCommand(request)
+                            .then(result => sendResponse(result))
+                            .catch(error => {
+                                console.error('自动化命令执行失败:', error);
+                                sendResponse({ success: false, error: error.message });
+                            });
+                        return true; // 保持消息通道开放
+
                     default:
                         console.warn('Unknown message action:', request.action);
                         sendResponse({ success: false, error: 'Unknown action' });
@@ -2192,13 +2202,234 @@ class MCPFeedbackContent {
         }, 3000);
     }
     
+    // 处理自动化命令
+    async handleAutomationCommand(request) {
+        console.log('处理自动化命令:', request.type, request.data);
+
+        try {
+            switch (request.type) {
+                case 'navigate':
+                    return await this.automateNavigate(request.data);
+
+                case 'click':
+                    return await this.automateClick(request.data);
+
+                case 'fillInput':
+                    return await this.automateFillInput(request.data);
+
+                case 'executeScript':
+                    return await this.automateExecuteScript(request.data);
+
+                case 'getPageInfo':
+                    return await this.automateGetPageInfo(request.data);
+
+                case 'takeScreenshot':
+                    return await this.automateTakeScreenshot(request.data);
+
+                case 'waitForElement':
+                    return await this.automateWaitForElement(request.data);
+
+                default:
+                    throw new Error(`Unknown automation command: ${request.type}`);
+            }
+        } catch (error) {
+            console.error('自动化命令执行失败:', error);
+            throw error;
+        }
+    }
+
+    // 导航到指定URL
+    async automateNavigate(data) {
+        const { url, waitForLoad } = data;
+        console.log('导航到:', url);
+
+        window.location.href = url;
+
+        if (waitForLoad) {
+            await new Promise((resolve) => {
+                if (document.readyState === 'complete') {
+                    resolve();
+                } else {
+                    window.addEventListener('load', resolve, { once: true });
+                }
+            });
+        }
+
+        return { success: true, message: `Successfully navigated to ${url}` };
+    }
+
+    // 点击元素
+    async automateClick(data) {
+        const { selector, waitTime } = data;
+        console.log('点击元素:', selector);
+
+        const element = document.querySelector(selector);
+        if (!element) {
+            throw new Error(`Element not found: ${selector}`);
+        }
+
+        // 滚动到元素位置
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        // 等待一下确保滚动完成
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // 点击元素
+        element.click();
+
+        // 等待指定时间
+        if (waitTime > 0) {
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+
+        return { success: true, message: `Clicked element: ${selector}` };
+    }
+
+    // 填写输入框
+    async automateFillInput(data) {
+        const { selector, text, clearFirst } = data;
+        console.log('填写输入框:', selector, '内容:', text);
+
+        const element = document.querySelector(selector);
+        if (!element) {
+            throw new Error(`Input element not found: ${selector}`);
+        }
+
+        // 滚动到元素位置
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        // 聚焦元素
+        element.focus();
+
+        // 清空现有内容
+        if (clearFirst) {
+            element.value = '';
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        // 模拟用户输入
+        for (let i = 0; i < text.length; i++) {
+            element.value += text[i];
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            await new Promise(resolve => setTimeout(resolve, 50)); // 模拟真实输入速度
+        }
+
+        // 触发change事件
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.blur();
+
+        return { success: true, message: `Filled input ${selector} with: ${text}` };
+    }
+
+    // 执行JavaScript
+    async automateExecuteScript(data) {
+        const { script, returnResult } = data;
+        console.log('执行脚本:', script.substring(0, 100) + '...');
+
+        try {
+            const result = eval(script);
+
+            if (returnResult) {
+                return {
+                    success: true,
+                    result: result,
+                    message: 'Script executed successfully'
+                };
+            } else {
+                return { success: true, message: 'Script executed successfully' };
+            }
+        } catch (error) {
+            throw new Error(`Script execution failed: ${error.message}`);
+        }
+    }
+
+    // 获取页面信息
+    async automateGetPageInfo(data) {
+        const { includeElements, elementSelector } = data;
+        console.log('获取页面信息, 包含元素:', includeElements);
+
+        const pageInfo = {
+            url: window.location.href,
+            title: document.title,
+            timestamp: new Date().toISOString()
+        };
+
+        if (includeElements) {
+            const selector = elementSelector || 'input, button, textarea, select, a';
+            const elements = Array.from(document.querySelectorAll(selector));
+
+            pageInfo.elements = elements.map((el, index) => {
+                const rect = el.getBoundingClientRect();
+                return {
+                    index,
+                    tagName: el.tagName.toLowerCase(),
+                    type: el.type || '',
+                    id: el.id || '',
+                    className: el.className || '',
+                    text: el.textContent?.trim().substring(0, 100) || '',
+                    href: el.href || '',
+                    visible: rect.width > 0 && rect.height > 0 &&
+                             window.getComputedStyle(el).display !== 'none'
+                };
+            });
+        }
+
+        return { success: true, data: pageInfo };
+    }
+
+    // 截图
+    async automateTakeScreenshot(data) {
+        console.log('请求截图');
+
+        // 通过background script请求截图
+        return new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({
+                action: 'captureElementScreenshot'
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                } else if (response.success) {
+                    resolve({
+                        success: true,
+                        screenshot: response.screenshot,
+                        message: 'Screenshot captured successfully'
+                    });
+                } else {
+                    reject(new Error(response.error || 'Screenshot failed'));
+                }
+            });
+        });
+    }
+
+    // 等待元素出现
+    async automateWaitForElement(data) {
+        const { selector, timeout } = data;
+        console.log('等待元素出现:', selector);
+
+        const startTime = Date.now();
+
+        while (Date.now() - startTime < timeout) {
+            const element = document.querySelector(selector);
+            if (element && element.offsetParent !== null) {
+                return {
+                    success: true,
+                    message: `Element found: ${selector}`,
+                    waitTime: Date.now() - startTime
+                };
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        throw new Error(`Element not found within ${timeout}ms: ${selector}`);
+    }
+
     cleanup() {
         this.stopFeedbackCollection();
-        
+
         // 清理截图数据
         this.capturedScreenshots = [];
         this.selectedFiles = [];
-        
+
         // 移除样式
         const styles = document.getElementById('mcp-feedback-styles');
         if (styles) {

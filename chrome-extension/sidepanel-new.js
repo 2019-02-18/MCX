@@ -259,6 +259,11 @@ class MCPFeedbackSidePanel {
             default:
                 console.log('🔄 未知MCP消息类型:', message.type);
         }
+        
+        // 处理自动化命令
+        if (message.action === 'automation') {
+            this.handleAutomationCommand(message);
+        }
     }
 
     handleFeedbackRequest(data) {
@@ -381,6 +386,275 @@ class MCPFeedbackSidePanel {
         }
     }
 
+    // 新增：处理自动化命令
+    async handleAutomationCommand(message) {
+        console.log('🤖 收到自动化命令:', message);
+        
+        const { type, requestId, data } = message;
+        
+        try {
+            let result = null;
+            
+            switch (type) {
+                case 'navigate':
+                    result = await this.automationNavigate(data);
+                    break;
+                    
+                case 'click':
+                    result = await this.automationClick(data);
+                    break;
+                    
+                case 'fillInput':
+                    result = await this.automationFillInput(data);
+                    break;
+                    
+                case 'executeScript':
+                    result = await this.automationExecuteScript(data);
+                    break;
+                    
+                case 'getPageInfo':
+                    result = await this.automationGetPageInfo(data);
+                    break;
+                    
+                case 'takeScreenshot':
+                    result = await this.automationTakeScreenshot(data);
+                    break;
+                    
+                case 'waitForElement':
+                    result = await this.automationWaitForElement(data);
+                    break;
+                    
+                default:
+                    throw new Error(`Unknown automation command: ${type}`);
+            }
+            
+            // 发送成功响应
+            this.sendWebSocketMessage({
+                action: 'automationResponse',
+                requestId,
+                success: true,
+                data: result,
+                timestamp: new Date().toISOString()
+            });
+            
+            console.log('✅ 自动化命令执行成功:', type, result);
+            
+        } catch (error) {
+            console.error('❌ 自动化命令执行失败:', type, error);
+            
+            // 发送错误响应
+            this.sendWebSocketMessage({
+                action: 'automationResponse',
+                requestId,
+                success: false,
+                error: error.message,
+                timestamp: new Date().toISOString()
+            });
+        }
+    }
+
+    // 自动化操作：导航到URL
+    async automationNavigate(data) {
+        const { url, waitForLoad } = data;
+        
+        // 获取当前活动标签页
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        // 导航到新URL
+        await chrome.tabs.update(tab.id, { url });
+        
+        if (waitForLoad) {
+            // 等待页面加载完成
+            await new Promise((resolve) => {
+                const listener = (tabId, changeInfo) => {
+                    if (tabId === tab.id && changeInfo.status === 'complete') {
+                        chrome.tabs.onUpdated.removeListener(listener);
+                        resolve();
+                    }
+                };
+                chrome.tabs.onUpdated.addListener(listener);
+            });
+        }
+        
+        return `Successfully navigated to ${url}`;
+    }
+
+    // 自动化操作：点击元素
+    async automationClick(data) {
+        const { selector, waitTime } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (selector) => {
+                const element = document.querySelector(selector);
+                if (!element) {
+                    throw new Error(`Element not found: ${selector}`);
+                }
+                
+                element.click();
+                return `Clicked element: ${selector}`;
+            },
+            args: [selector]
+        });
+        
+        if (waitTime > 0) {
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+        
+        return result[0].result;
+    }
+
+    // 自动化操作：填写输入框
+    async automationFillInput(data) {
+        const { selector, text, clearFirst } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (selector, text, clearFirst) => {
+                const element = document.querySelector(selector);
+                if (!element) {
+                    throw new Error(`Input element not found: ${selector}`);
+                }
+                
+                if (clearFirst) {
+                    element.value = '';
+                }
+                
+                element.value = text;
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+                element.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                return `Filled input ${selector} with: ${text}`;
+            },
+            args: [selector, text, clearFirst]
+        });
+        
+        return result[0].result;
+    }
+
+    // 自动化操作：执行JavaScript代码
+    async automationExecuteScript(data) {
+        const { script, returnResult } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (script) => {
+                return eval(script);
+            },
+            args: [script]
+        });
+        
+        if (returnResult) {
+            return result[0].result;
+        } else {
+            return 'Script executed successfully';
+        }
+    }
+
+    // 自动化操作：获取页面信息
+    async automationGetPageInfo(data) {
+        const { includeElements, elementSelector } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (includeElements, elementSelector) => {
+                const info = {
+                    url: window.location.href,
+                    title: document.title,
+                    timestamp: new Date().toISOString()
+                };
+                
+                if (includeElements) {
+                    const selector = elementSelector || 'a, button, input, select, textarea, [onclick], [role="button"]';
+                    const elements = Array.from(document.querySelectorAll(selector));
+                    
+                    info.elements = elements.slice(0, 50).map((el, index) => ({
+                        index,
+                        tagName: el.tagName.toLowerCase(),
+                        text: el.textContent?.trim().substring(0, 100) || '',
+                        id: el.id || '',
+                        className: el.className || '',
+                        type: el.type || '',
+                        href: el.href || '',
+                        visible: el.offsetParent !== null
+                    }));
+                }
+                
+                return info;
+            },
+            args: [includeElements, elementSelector ?? null]
+        });
+        
+        return result[0].result;
+    }
+
+    // 自动化操作：截取页面截图
+    async automationTakeScreenshot(data) {
+        const { fullPage, quality = 80, format = 'png' } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        // 使用Chrome API截图
+        const captureOptions = {
+            format: format === 'jpeg' ? 'jpeg' : 'png',
+            quality: Math.max(0, Math.min(quality, 100))
+        };
+
+        const dataUrl = await chrome.tabs.captureVisibleTab(null, captureOptions);
+        
+        return {
+            screenshot: dataUrl,
+            timestamp: new Date().toISOString(),
+            fullPage: fullPage || false,
+            format: captureOptions.format,
+            quality: captureOptions.quality
+        };
+    }
+
+    // 自动化操作：等待元素出现
+    async automationWaitForElement(data) {
+        const { selector, timeout } = data;
+        
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: (selector, timeout) => {
+                return new Promise((resolve, reject) => {
+                    const startTime = Date.now();
+                    
+                    const checkElement = () => {
+                        const element = document.querySelector(selector);
+                        if (element) {
+                            resolve(`Element found: ${selector}`);
+                            return;
+                        }
+                        
+                        if (Date.now() - startTime > timeout) {
+                            reject(new Error(`Element not found within ${timeout}ms: ${selector}`));
+                            return;
+                        }
+                        
+                        setTimeout(checkElement, 100);
+                    };
+                    
+                    checkElement();
+                });
+            },
+            args: [selector, timeout]
+        });
+        
+        return result[0].result;
+    }
+
     sendWebSocketMessage(message) {
         if (this.mcpSocket && this.mcpSocket.readyState === WebSocket.OPEN) {
             this.mcpSocket.send(JSON.stringify(message));
@@ -460,9 +734,9 @@ class MCPFeedbackSidePanel {
                 await this.loadHistoryFromServer();
             } else {
                 // 如果没有连接到服务器，从本地存储加载
-                const result = await chrome.storage.local.get('mcpFeedbackHistory');
-                if (result.mcpFeedbackHistory) {
-                    this.feedbackHistory = result.mcpFeedbackHistory;
+            const result = await chrome.storage.local.get('mcpFeedbackHistory');
+            if (result.mcpFeedbackHistory) {
+                this.feedbackHistory = result.mcpFeedbackHistory;
                 }
             }
         } catch (error) {
@@ -943,8 +1217,8 @@ class MCPFeedbackSidePanel {
                     record.request.summary.substring(0, 80) + '...' : record.request.summary;
                 const responsePreview = record.response.text.length > 60 ? 
                     record.response.text.substring(0, 60) + '...' : record.response.text;
-                
-                historyItem.innerHTML = `
+            
+            historyItem.innerHTML = `
                     <div style="font-weight: bold; margin-bottom: 4px; color: #0078d4;">📋 对话记录 #${record.id}</div>
                     <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${timestamp}</div>
                     <div style="margin-bottom: 6px;">
@@ -967,8 +1241,8 @@ class MCPFeedbackSidePanel {
                 
                 historyItem.innerHTML = `
                     <div style="font-weight: bold; margin-bottom: 4px;">反馈 #${record.id}</div>
-                    <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${timestamp}</div>
-                    <div style="margin-bottom: 8px;">${textPreview || '(仅图片反馈)'}</div>
+                <div style="font-size: 12px; color: #666; margin-bottom: 8px;">${timestamp}</div>
+                <div style="margin-bottom: 8px;">${textPreview || '(仅图片反馈)'}</div>
                     ${record.images && record.images.length > 0 ? 
                         `<div style="font-size: 12px; color: #007bff;">📷 ${record.images.length} 张图片</div>` : ''}
                 `;

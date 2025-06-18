@@ -305,12 +305,36 @@ class MCPFeedbackBackground {
                         action: 'requestFeedback',  // 修改为与sidepanel期望的消息类型一致
                         data: message.data
                     });
-                    
+
                     // 通知内容脚本显示反馈表单
                     this.broadcastToContentScripts({
                         action: 'showFeedbackForm',
                         data: message.data
                     });
+                    break;
+
+                case 'automation':
+                    // 处理自动化命令
+                    console.log('📨 Background: 收到自动化命令:', message.type, message.data);
+                    this.handleAutomationCommand(message)
+                        .then(result => {
+                            // 发送响应回MCP服务器
+                            this.sendToMCP({
+                                action: 'automationResponse',
+                                requestId: message.requestId,
+                                success: true,
+                                data: result
+                            });
+                        })
+                        .catch(error => {
+                            console.error('📨 Background: 自动化命令执行失败:', error);
+                            this.sendToMCP({
+                                action: 'automationResponse',
+                                requestId: message.requestId,
+                                success: false,
+                                error: error.message
+                            });
+                        });
                     break;
                     
                 case 'feedbackReceived':
@@ -530,11 +554,53 @@ class MCPFeedbackBackground {
         }
     }
     
+    // 处理自动化命令
+    async handleAutomationCommand(command) {
+        console.log('📤 Background: 处理自动化命令:', command.type);
+
+        try {
+            // 获取当前活动标签页
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+            if (!tab) {
+                throw new Error('无法获取当前标签页');
+            }
+
+            // 将命令发送给content script
+            return new Promise((resolve, reject) => {
+                chrome.tabs.sendMessage(tab.id, command, (response) => {
+                    if (chrome.runtime.lastError) {
+                        reject(new Error(chrome.runtime.lastError.message));
+                    } else if (response && response.success) {
+                        resolve(response);
+                    } else {
+                        reject(new Error(response?.error || '自动化命令执行失败'));
+                    }
+                });
+            });
+        } catch (error) {
+            console.error('📤 Background: 自动化命令处理失败:', error);
+            throw error;
+        }
+    }
+
+    // 发送消息到MCP服务器
+    sendToMCP(data) {
+        if (this.isConnected && this.mcpConnection) {
+            this.mcpConnection.send(JSON.stringify(data));
+            this.messageStats.sent++;
+            this.lastActivity = new Date().toISOString();
+            console.log('📤 Background: 发送消息到MCP:', data.action);
+        } else {
+            console.warn('📤 Background: MCP未连接，无法发送消息');
+        }
+    }
+
     async getMCPInfo() {
         if (!this.isConnected || !this.mcpConnection) {
             throw new Error('MCP服务器未连接');
         }
-        
+
         // 收集MCP服务器信息
         const mcpInfo = {
             version: 'MCP v1.0', // 可以从服务器获取实际版本
@@ -545,7 +611,7 @@ class MCPFeedbackBackground {
             receivedCount: this.messageStats?.received || 0,
             lastActivity: this.lastActivity || new Date().toISOString()
         };
-        
+
         return {
             success: true,
             data: mcpInfo
