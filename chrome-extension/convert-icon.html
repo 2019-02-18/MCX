@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG to PNG Icon Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .converter {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        canvas {
+            border: 1px solid #ccc;
+            margin: 10px;
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #005a87;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chrome Extension Icon Converter</h1>
+    <p>This tool will help you convert the SVG icon to PNG files for your Chrome extension.</p>
+    
+    <div class="converter">
+        <h3>Step 1: Load SVG</h3>
+        <input type="file" id="svgFile" accept=".svg" />
+        <div id="svgPreview"></div>
+    </div>
+    
+    <div class="converter">
+        <h3>Step 2: Generate PNG Icons</h3>
+        <button onclick="generateIcons()">Generate All Icon Sizes</button>
+        <div id="canvasContainer"></div>
+    </div>
+    
+    <div class="converter">
+        <h3>Step 3: Download Icons</h3>
+        <div id="downloadLinks"></div>
+    </div>
+
+    <script>
+        let svgContent = '';
+        
+        document.getElementById('svgFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    svgContent = e.target.result;
+                    document.getElementById('svgPreview').innerHTML = svgContent;
+                };
+                reader.readAsText(file);
+            }
+        });
+        
+        function generateIcons() {
+            if (!svgContent) {
+                alert('Please select an SVG file first!');
+                return;
+            }
+            
+            const sizes = [16, 32, 48, 128];
+            const container = document.getElementById('canvasContainer');
+            const downloadContainer = document.getElementById('downloadLinks');
+            
+            container.innerHTML = '';
+            downloadContainer.innerHTML = '';
+            
+            sizes.forEach(size => {
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                canvas.style.width = size + 'px';
+                canvas.style.height = size + 'px';
+                
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                
+                img.onload = function() {
+                    ctx.drawImage(img, 0, 0, size, size);
+                    
+                    // Create download link
+                    canvas.toBlob(function(blob) {
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `icon${size}.png`;
+                        link.textContent = `Download icon${size}.png`;
+                        link.style.display = 'block';
+                        link.style.margin = '5px 0';
+                        downloadContainer.appendChild(link);
+                    });
+                };
+                
+                const svgBlob = new Blob([svgContent], {type: 'image/svg+xml'});
+                const url = URL.createObjectURL(svgBlob);
+                img.src = url;
+                
+                container.appendChild(canvas);
+            });
+        }
+    </script>
+</body>
+</html>

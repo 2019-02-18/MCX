@@ -1,61 +1,49 @@
-<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background circle with gradient -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
   <defs>
-    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    <!-- Windows 10 风格渐变 -->
+    <linearGradient id="win10Gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0078d4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#106ebe;stop-opacity:1" />
     </linearGradient>
-    <linearGradient id="iconGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <!-- 白色渐变 -->
+    <linearGradient id="whiteGradient" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#f8f9ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f3f2f1;stop-opacity:1" />
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="2" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.3"/>
+    <!-- 轻微阴影 -->
+    <filter id="subtleShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="1" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.15"/>
     </filter>
   </defs>
   
-  <!-- Main background -->
-  <circle cx="64" cy="64" r="60" fill="url(#bgGradient)" filter="url(#shadow)"/>
+  <!-- 主背景 - Windows 10 风格圆角矩形 -->
+  <rect x="8" y="8" width="112" height="112" rx="16" ry="16" fill="url(#win10Gradient)" filter="url(#subtleShadow)"/>
   
-  <!-- Camera body -->
-  <rect x="32" y="40" width="64" height="48" rx="8" ry="8" fill="url(#iconGradient)" stroke="#667eea" stroke-width="2"/>
+  <!-- 反馈图标主体 - 简洁的对话框 -->
+  <rect x="24" y="32" width="80" height="48" rx="8" ry="8" fill="url(#whiteGradient)" stroke="none"/>
   
-  <!-- Camera lens -->
-  <circle cx="64" cy="64" r="16" fill="#667eea" stroke="#ffffff" stroke-width="2"/>
-  <circle cx="64" cy="64" r="10" fill="#4c63d2"/>
-  <circle cx="64" cy="64" r="6" fill="#3b4db8"/>
+  <!-- 对话框尾巴 -->
+  <path d="M 40 80 L 48 88 L 56 80 Z" fill="url(#whiteGradient)"/>
   
-  <!-- Camera flash -->
-  <rect x="76" y="44" width="8" height="6" rx="2" ry="2" fill="#ffd700"/>
+  <!-- 反馈点 - Windows 10 风格的简洁圆点 -->
+  <circle cx="44" cy="56" r="3" fill="#0078d4"/>
+  <circle cx="64" cy="56" r="3" fill="#0078d4"/>
+  <circle cx="84" cy="56" r="3" fill="#0078d4"/>
   
-  <!-- Viewfinder -->
-  <rect x="84" y="46" width="6" height="4" rx="1" ry="1" fill="#333333"/>
-  
-  <!-- Target crosshairs overlay -->
-  <g stroke="#ffffff" stroke-width="2" fill="none" opacity="0.8">
-    <!-- Corner brackets -->
-    <path d="M 20 20 L 20 32 M 20 20 L 32 20"/>
-    <path d="M 108 20 L 96 20 M 108 20 L 108 32"/>
-    <path d="M 108 108 L 108 96 M 108 108 L 96 108"/>
-    <path d="M 20 108 L 32 108 M 20 108 L 20 96"/>
+  <!-- 交互指示器 - 简洁的箭头 -->
+  <g fill="#107c10">
+    <!-- 输入箭头 -->
+    <path d="M 108 40 L 116 48 L 108 56 L 112 56 L 112 52 L 104 52 L 104 44 L 112 44 Z"/>
+    <!-- 输出箭头 -->
+    <path d="M 20 72 L 12 80 L 20 88 L 16 88 L 16 84 L 24 84 L 24 76 L 16 76 Z"/>
   </g>
   
-  <!-- Center crosshair -->
-  <g stroke="#ffffff" stroke-width="1.5" fill="none" opacity="0.6">
-    <line x1="64" y1="20" x2="64" y2="28"/>
-    <line x1="64" y1="100" x2="64" y2="108"/>
-    <line x1="20" y1="64" x2="28" y2="64"/>
-    <line x1="100" y1="64" x2="108" y2="64"/>
-  </g>
+  <!-- Windows 10 风格的装饰线条 -->
+  <rect x="32" y="40" width="16" height="2" rx="1" fill="#605e5c" opacity="0.6"/>
+  <rect x="32" y="44" width="24" height="2" rx="1" fill="#605e5c" opacity="0.4"/>
+  <rect x="32" y="68" width="20" height="2" rx="1" fill="#605e5c" opacity="0.3"/>
   
-  <!-- AI indicator dots -->
-  <circle cx="48" cy="32" r="2" fill="#00ff88" opacity="0.8">
-    <animate attributeName="opacity" values="0.8;0.3;0.8" dur="2s" repeatCount="indefinite"/>
-  </circle>
-  <circle cx="56" cy="28" r="1.5" fill="#00ff88" opacity="0.6">
-    <animate attributeName="opacity" values="0.6;0.2;0.6" dur="2.5s" repeatCount="indefinite"/>
-  </circle>
-  <circle cx="64" cy="26" r="1" fill="#00ff88" opacity="0.4">
-    <animate attributeName="opacity" values="0.4;0.1;0.4" dur="3s" repeatCount="indefinite"/>
-  </circle>
+  <!-- 状态指示器 -->
+  <circle cx="92" cy="40" r="4" fill="#107c10"/>
+  <circle cx="88" cy="36" r="1.5" fill="#ffffff"/>
 </svg>

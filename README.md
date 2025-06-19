@@ -1,6 +1,6 @@
 # MCP Chrome Feedback
 
-一个专为Cursor设计的MCP工具，提供与Chrome扩展交互的反馈收集功能，类似于mcp-feedback-enhanced。
+提供MCP服务与Chrome扩展交互的反馈收集功能
 
 ## 功能特性
 
@@ -11,21 +11,55 @@
 - 🎯 **元素捕获**: 支持页面元素捕获和截图
 - ⚡ **即插即用**: 标准MCP协议，可直接配置到Cursor
 
+### 设计灵感
+**Minidoracat** - [mcp-feedback-enhanced](https://github.com/Minidoracat/mcp-feedback-enhanced)
+**web-infra-dev** - [midscene-chrome-extension](https://github.com/web-infra-dev/midscene)
+
 ## 安装
 
 ### 1. 安装MCP工具
 
-```bash
-npm install -g mcp-chrome-feedback
+#### 方法1: 使用npx (推荐)
+
+无需安装，直接在MCP配置中使用：
+
+```json
+{
+  "mcpServers": {
+    "chrome-feedback": {
+      "command": "npx",
+      "args": ["mcp-chrome-feedback@latest"]
+    }
+  }
+}
 ```
 
-或者从源码构建：
+#### 方法2: 全局安装
 
 ```bash
-git clone <repository-url>
-cd mcp-chrome-feedback
+npm install -g mcp-chrome-feedback@latest
+```
+
+#### 方法3: 从源码构建
+
+```bash
+git clone https://github.com/2019-02-18/MCX.git
+cd MCX/mcp-chrome-feedback
 npm install
 npm run build
+```
+
+### 🔧 开发构建
+
+```bash
+# 构建项目
+npm run build
+
+# 开发模式
+npm run dev
+
+# 清理构建文件
+npm run clean
 ```
 
 ### 2. 安装Chrome扩展
@@ -38,32 +72,54 @@ npm run build
 
 ## 配置到Cursor
 
-### 方法1: 通过Cursor设置界面
+### 方法1: 使用npx (推荐)
 
-1. 打开Cursor
-2. 进入设置 (Cmd/Ctrl + ,)
-3. 搜索 "MCP" 或进入 "Extensions" > "Model Context Protocol"
-4. 添加新的MCP服务器：
-   - **名称**: `chrome-feedback`
-   - **命令**: `mcp-chrome-feedback`
-   - **参数**: (留空)
-
-### 方法2: 手动编辑配置文件
-
-编辑Cursor的MCP配置文件 (通常在 `~/.cursor/mcp_servers.json`):
+编辑Cursor的MCP配置文件，添加以下配置：
 
 ```json
 {
   "mcpServers": {
     "chrome-feedback": {
-      "command": "mcp-chrome-feedback",
-      "args": []
+      "command": "npx",
+      "args": ["mcp-chrome-feedback@latest"]
     }
   }
 }
 ```
 
-### 方法3: 使用本地路径 (开发模式)
+### 方法2: 使用全局安装
+
+如果已全局安装，可以直接使用：
+
+```json
+{
+  "mcpServers": {
+    "chrome-feedback": {
+      "command": "mcp-chrome-feedback"
+    }
+  }
+}
+```
+
+### 方法3: 自定义端口配置
+
+如果需要指定特定端口：
+
+```json
+{
+  "mcpServers": {
+    "chrome-feedback": {
+      "command": "npx",
+      "args": ["mcp-chrome-feedback@latest"],
+      "env": {
+        "MCP_CHROME_PORT": "8900"
+      }
+    }
+  }
+}
+```
+
+### 方法4: 使用本地路径 (开发模式)
 
 如果从源码运行：
 
@@ -72,7 +128,7 @@ npm run build
   "mcpServers": {
     "chrome-feedback": {
       "command": "node",
-      "args": ["/path/to/mcp-chrome-feedback/build/index.js"]
+      "args": ["/path/to/MCX/mcp-chrome-feedback/build/index.js"]
     }
   }
 }
@@ -157,7 +213,7 @@ npm run build
 
 ### 环境变量
 
-- `MCP_CHROME_PORT`: Chrome扩展通信端口 (默认: 8797)
+- `MCP_CHROME_PORT`: Chrome扩展通信端口 (默认: 8797，如端口被占用会自动递增到可用端口)
 
 ### Chrome扩展设置
 
@@ -175,9 +231,16 @@ npm run build
    请使用get_extension_status工具检查连接状态
    ```
 
-2. **确认端口可用**: 默认端口8797是否被占用
+2. **端口问题**: 
+   - 服务会自动寻找可用端口 (8797-8806)
+   - 如需指定端口，使用环境变量 `MCP_CHROME_PORT`
+   - 清理npx缓存: `rm -rf ~/.npm/_npx` (Unix) 或删除 `%USERPROFILE%\.npm\_npx` (Windows)
 
-3. **重启服务**: 重启Cursor或重新加载扩展
+3. **依赖问题**:
+   - 确保使用最新版本: `mcp-chrome-feedback@latest`
+   - 清理npm缓存: `npm cache clean --force`
+
+4. **重启服务**: 重启Cursor或重新加载扩展
 
 ### 反馈收集问题
 
@@ -205,18 +268,6 @@ npm run dev
 npm test
 ```
 
-## 与mcp-feedback-enhanced的对比
-
-| 功能 | mcp-chrome-feedback | mcp-feedback-enhanced |
-|------|-------------------|---------------------|
-| 交互界面 | Chrome扩展 | 系统GUI/Web界面 |
-| 图片支持 | ✅ | ✅ |
-| 元素捕获 | ✅ | ❌ |
-| 页面截图 | ✅ | ❌ |
-| 跨平台 | ✅ (需Chrome) | ✅ |
-| 配置复杂度 | 中等 | 简单 |
-| 功能丰富度 | 高 | 中等 |
-
 ## 许可证
 
 MIT License
@@ -227,8 +278,20 @@ MIT License
 
 ## 更新日志
 
+### v1.0.4
+- 🚀 **重大改进**: 升级MCP SDK到v1.13.0
+- 🔧 **端口管理**: 添加自动端口分配功能 (8797-8806)
+- 🛠️ **依赖修复**: 解决npx安装和运行问题
+- 📦 **打包优化**: 改进npm包结构和依赖管理
+- 🐛 **错误处理**: 增强错误日志和调试信息
+
+### v1.0.3
+- 🔄 **端口冲突修复**: 初步解决端口占用问题
+- 📝 **文档更新**: 改进安装和配置说明
+
 ### v1.0.0
-- 初始版本
-- 基础反馈收集功能
-- Chrome扩展集成
-- MCP协议支持 
+- 🎉 **初始版本**: 基础反馈收集功能
+- 🔌 **Chrome扩展集成**: 完整的浏览器扩展支持  
+- 🤖 **MCP协议支持**: 标准MCP工具实现
+- 💬 **实时通信**: WebSocket双向通信
+

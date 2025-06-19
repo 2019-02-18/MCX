@@ -1,0 +1,70 @@
+{
+  "name": "mcp-chrome-feedback",
+  "version": "1.0.5",
+  "description": "MCP tool for interactive feedback collection through Chrome extension with AI integration",
+  "main": "build/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node build/index.js",
+    "test": "echo \"Tests will be added in future versions\"",
+    "clean": "rimraf build",
+    "prebuild": "npm run clean",
+    "prepublishOnly": "npm run build",
+    "postpublish": "echo \"Package published successfully!\"",
+    "release:patch": "npm version patch && npm publish",
+    "release:minor": "npm version minor && npm publish",
+    "release:major": "npm version major && npm publish"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "feedback",
+    "chrome-extension",
+    "interactive",
+    "ai",
+    "cursor",
+    "websocket",
+    "screenshot",
+    "element-capture",
+    "browser-automation",
+    "developer-tools"
+  ],
+  "author": "2019-02-18",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/2019-02-18/MCX.git"
+  },
+  "bugs": {
+    "url": "https://github.com/2019-02-18/MCX/issues"
+  },
+  "homepage": "https://github.com/2019-02-18/MCX#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.0",
+    "ws": "^8.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
+    "rimraf": "^5.0.10",
+    "typescript": "^5.0.0"
+  },
+  "bin": {
+    "mcp-chrome-feedback": "build/index.js"
+  },
+  "files": [
+    "build/**/*",
+    "chrome-extension/**/*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

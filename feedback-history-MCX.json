@@ -348,5 +348,17 @@
       "source": "chrome-extension"
     },
     "type": "mcp-interaction"
+  },
+  {
+    "id": "1750313155916",
+    "timestamp": "2025-06-19T06:10:28.941Z",
+    "text": "1",
+    "images": [],
+    "metadata": {
+      "url": "https://www.npmjs.com/escalate/webauthn?next=%2Fauth%2Fcli%2F95624665-ace0-4c78-a01b-3a6490a59d50",
+      "title": "npm | Authentication Successful",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    },
+    "source": "chrome-extension"
   }
 ]
