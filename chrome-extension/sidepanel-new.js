@@ -1286,13 +1286,20 @@ class MCPFeedbackSidePanel {
             }, (response) => {
                 if (chrome.runtime.lastError) {
                     console.error('❌ 发送消息失败:', chrome.runtime.lastError.message);
-                    this.showNotification('无法启动元素检查: ' + chrome.runtime.lastError.message, 'error');
+                    // 检查是否是因为没有content script导致的错误
+                    if (chrome.runtime.lastError.message.includes('Could not establish connection')) {
+                        this.showNotification('页面未准备就绪，请刷新页面后重试', 'warning');
+                    } else {
+                        this.showNotification('无法启动元素检查: ' + chrome.runtime.lastError.message, 'error');
+                    }
                 } else if (response && response.success) {
                     console.log('✅ 元素检查启动成功');
-                    this.showNotification('元素检查模式已启动', 'success');
+                    this.showNotification('元素检查模式已启动，请在页面上选择要捕获的元素', 'success');
                 } else {
                     console.error('❌ 启动失败，响应:', response);
-                    this.showNotification('启动元素检查失败', 'error');
+                    // 提供更详细的错误信息
+                    const errorMsg = response && response.message ? response.message : '未知错误';
+                    this.showNotification('启动元素检查失败: ' + errorMsg, 'error');
                 }
             });
         } catch (error) {
@@ -3100,4 +3107,4 @@ class MCPFeedbackSidePanel {
 // 初始化面板
 document.addEventListener('DOMContentLoaded', () => {
     new MCPFeedbackSidePanel();
-}); 
+});

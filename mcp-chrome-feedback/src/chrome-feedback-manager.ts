@@ -1,128 +1,181 @@
-import { createServer, Server as HttpServer } from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
-import { promises as fs } from 'fs';
-import { join } from 'path';
+// 导入必要的Node.js模块
+import { createServer, Server as HttpServer } from 'http'; // HTTP服务器
+import { WebSocketServer, WebSocket } from 'ws'; // WebSocket服务器和客户端
+import { promises as fs } from 'fs'; // 文件系统操作（Promise版本）
+import { join } from 'path'; // 路径处理工具
 
+/**
+ * 用户反馈数据接口
+ * 定义从Chrome扩展接收到的反馈数据结构
+ */
 export interface FeedbackData {
-  id: string;
-  timestamp: string;
-  text: string;
-  images?: Array<{
-    id: string;
-    name: string;
+  id: string; // 反馈唯一标识符
+  timestamp: string; // 反馈提交时间戳
+  text: string; // 用户输入的文本反馈内容
+  images?: Array<{ // 可选的图片附件数组
+    id: string; // 图片唯一标识符
+    name: string; // 图片文件名
     data: string; // base64格式的图片数据，包含data:image/...前缀
-    size?: number;
+    size?: number; // 图片文件大小（字节）
   }>;
-  metadata?: {
-    url?: string;
-    title?: string;
-    userAgent?: string;
+  metadata?: { // 可选的元数据信息
+    url?: string; // 用户当前页面URL
+    title?: string; // 页面标题
+    userAgent?: string; // 用户浏览器信息
   };
-  source: 'chrome-extension';
+  source: 'chrome-extension'; // 反馈来源标识
 }
 
-// 新增：完整对话记录接口
+/**
+ * 完整对话记录接口
+ * 用于保存MCP交互的完整对话历史
+ */
 export interface ConversationRecord {
-  id: string;
-  timestamp: string;
-  request: {
-    summary: string;
-    timestamp: string;
+  id: string; // 对话记录唯一标识符
+  timestamp: string; // 对话时间戳
+  request: { // AI发起的请求信息
+    summary: string; // 请求摘要（AI工作内容描述）
+    timestamp: string; // 请求时间戳
   };
-  response: FeedbackData;
-  type: 'mcp-interaction';
+  response: FeedbackData; // 用户的反馈响应
+  type: 'mcp-interaction'; // 交互类型标识
 }
 
+/**
+ * 反馈请求接口
+ * 定义向Chrome扩展发送的反馈请求结构
+ */
 export interface FeedbackRequest {
-  id: string;
-  summary: string;
-  timeout: number;
-  timestamp: string;
+  id: string; // 请求唯一标识符
+  summary: string; // 请求摘要（显示给用户的工作描述）
+  timeout: number; // 超时时间（毫秒）
+  timestamp: string; // 请求时间戳
 }
 
-// 新增客户端类型接口
+/**
+ * 客户端信息接口
+ * 存储连接到服务器的客户端详细信息
+ */
 export interface ClientInfo {
-  ws: WebSocket;
-  type: 'chrome-extension' | 'web-ui' | 'unknown';
-  id: string;
-  connectedAt: string;
+  ws: WebSocket; // WebSocket连接对象
+  type: 'chrome-extension' | 'web-ui' | 'unknown'; // 客户端类型
+  id: string; // 客户端唯一标识符
+  connectedAt: string; // 连接建立时间
 }
 
+/**
+ * Chrome反馈管理器主类
+ * 负责管理与Chrome扩展的通信、反馈收集和历史记录管理
+ */
 export class ChromeFeedbackManager {
-  private httpServer: HttpServer | null = null;
-  private wsServer: WebSocketServer | null = null;
-  private clients: Map<string, ClientInfo> = new Map(); // 改用 Map 存储客户端信息
-  private feedbackHistory: FeedbackData[] = [];
-  private conversationHistory: ConversationRecord[] = []; // 新增：对话历史记录
+  // 服务器相关属性
+  private httpServer: HttpServer | null = null; // HTTP服务器实例
+  private wsServer: WebSocketServer | null = null; // WebSocket服务器实例
+  
+  // 客户端管理
+  private clients: Map<string, ClientInfo> = new Map(); // 存储所有连接的客户端信息
+  
+  // 数据存储
+  private feedbackHistory: FeedbackData[] = []; // 反馈历史记录数组
+  private conversationHistory: ConversationRecord[] = []; // 完整对话历史记录
+  
+  // 请求管理
   private pendingRequests: Map<string, {
-    resolve: (value: any) => void;
-    reject: (error: Error) => void;
-    timeout: NodeJS.Timeout;
-    summary?: string; // 新增：保存请求摘要
+    resolve: (value: any) => void; // Promise解决函数
+    reject: (error: Error) => void; // Promise拒绝函数
+    timeout: NodeJS.Timeout; // 超时定时器
+    summary?: string; // 请求摘要（用于保存对话记录）
   }> = new Map();
   
-  private readonly port = process.env.MCP_CHROME_PORT ? parseInt(process.env.MCP_CHROME_PORT) : 8797;
-  private actualPort: number = 8797; // 实际使用的端口
-  private projectDirectory: string = process.cwd(); // 当前项目目录
+  // 端口配置
+  private readonly port = process.env.MCP_CHROME_PORT ? parseInt(process.env.MCP_CHROME_PORT) : 8797; // 默认端口
+  private actualPort: number = 8797; // 实际使用的端口（可能因端口占用而变化）
+  
+  // 项目目录管理
+  private projectDirectory: string = process.cwd(); // 当前工作目录
   private actualProjectDirectory: string = process.cwd(); // 实际项目目录（通过MCP调用传入）
   
-  // 根据项目目录生成历史记录文件路径
+  /**
+   * 根据项目目录生成历史记录文件路径
+   * 每个项目都有独立的历史记录文件，避免不同项目间的数据混淆
+   */
   private get historyFile(): string {
-    // 获取项目目录名称作为标识符
+    // 从完整路径中提取项目目录名称作为文件标识符
     const projectName = this.actualProjectDirectory.split(/[/\\]/).pop() || 'default';
-    // 使用实际项目目录
+    // 在项目根目录下创建以项目名命名的历史记录文件
     return join(this.actualProjectDirectory, `feedback-history-${projectName}.json`);
   }
 
-  // 设置实际项目目录
+  /**
+   * 设置实际项目目录
+   * 当MCP调用传入新的项目路径时，更新内部项目目录设置
+   * @param projectPath 新的项目目录路径
+   */
   setActualProjectDirectory(projectPath: string): void {
     this.actualProjectDirectory = projectPath;
     console.error(`设置项目目录为: ${this.actualProjectDirectory}`);
     console.error(`历史记录文件: ${this.historyFile}`);
   }
 
+  /**
+   * 初始化反馈管理器
+   * 加载历史记录并启动HTTP和WebSocket服务器
+   */
   async initialize(): Promise<void> {
-    await this.loadHistory();
-    await this.startServer();
+    await this.loadHistory(); // 从文件加载历史记录
+    await this.startServer(); // 启动服务器
     console.error(`Chrome Feedback Manager initialized on port ${this.actualPort}`);
   }
 
+  /**
+   * 清理资源并关闭服务器
+   * 在程序退出时调用，确保数据保存和连接正确关闭
+   */
   async cleanup(): Promise<void> {
-    await this.saveHistory();
+    await this.saveHistory(); // 保存历史记录到文件
     
+    // 关闭WebSocket服务器
     if (this.wsServer) {
       this.wsServer.close();
     }
     
+    // 关闭HTTP服务器
     if (this.httpServer) {
       this.httpServer.close();
     }
     
-    // 清理所有待处理的请求
+    // 清理所有待处理的请求，避免内存泄漏
     for (const [id, request] of this.pendingRequests) {
-      clearTimeout(request.timeout);
-      request.reject(new Error('Server shutting down'));
+      clearTimeout(request.timeout); // 清除超时定时器
+      request.reject(new Error('Server shutting down')); // 拒绝未完成的Promise
     }
     this.pendingRequests.clear();
   }
 
+  /**
+   * 启动HTTP和WebSocket服务器
+   * 创建服务器实例并配置相关参数
+   */
   private async startServer(): Promise<void> {
     return new Promise((resolve, reject) => {
+      // 创建HTTP服务器，处理REST API请求
       this.httpServer = createServer((req, res) => {
         this.handleHttpRequest(req, res);
       });
 
-      // 设置HTTP服务器超时以支持长连接
+      // 配置HTTP服务器超时设置以支持长连接
       this.httpServer.timeout = 0; // 禁用HTTP服务器的默认超时
       this.httpServer.headersTimeout = 0; // 禁用headers超时
       this.httpServer.requestTimeout = 0; // 禁用请求超时
 
+      // 创建WebSocket服务器，基于HTTP服务器
       this.wsServer = new WebSocketServer({ 
-        server: this.httpServer,
-        maxPayload: 100 * 1024 * 1024, // 100MB最大payload用于图片传输
+        server: this.httpServer, // 复用HTTP服务器
+        maxPayload: 100 * 1024 * 1024, // 设置100MB最大payload用于图片传输
         perMessageDeflate: false // 关闭压缩以提高性能
       });
       
+      // 监听WebSocket连接事件
       this.wsServer.on('connection', (ws) => {
         this.handleWebSocketConnection(ws);
       });
@@ -132,71 +185,98 @@ export class ChromeFeedbackManager {
     });
   }
 
+  /**
+   * 尝试在指定端口启动服务器
+   * 如果端口被占用，自动尝试下一个端口
+   * @param port 尝试的端口号
+   * @param resolve Promise解决函数
+   * @param reject Promise拒绝函数
+   * @param maxAttempts 最大尝试次数
+   */
   private tryListen(port: number, resolve: Function, reject: Function, maxAttempts: number = 10): void {
+    // 检查是否已达到最大尝试次数
     if (maxAttempts <= 0) {
       reject(new Error('No available ports found'));
       return;
     }
 
-    // 清理之前的监听器
+    // 清理之前的事件监听器，避免重复绑定
     this.httpServer!.removeAllListeners('error');
     this.httpServer!.removeAllListeners('listening');
 
-    // 设置新的错误处理器
+    // 设置错误处理器
     const errorHandler = (error: any) => {
       if (error.code === 'EADDRINUSE') {
+        // 端口被占用，尝试下一个端口
         console.error(`Port ${port} is in use, trying port ${port + 1}`);
         this.tryListen(port + 1, resolve, reject, maxAttempts - 1);
       } else {
+        // 其他错误，直接拒绝
         reject(error);
       }
     };
 
     // 设置成功监听处理器
     const listeningHandler = () => {
-      this.actualPort = port;
+      this.actualPort = port; // 记录实际使用的端口
       console.error(`Server successfully started on port ${this.actualPort}`);
-      resolve();
+      resolve(); // 解决Promise
     };
 
+    // 绑定事件监听器（只触发一次）
     this.httpServer!.once('error', errorHandler);
     this.httpServer!.once('listening', listeningHandler);
     
+    // 开始监听指定端口（仅本地访问）
     this.httpServer!.listen(port, '127.0.0.1');
   }
 
+  /**
+   * 处理HTTP请求
+   * 支持CORS跨域请求和基本的REST API端点
+   * @param req HTTP请求对象
+   * @param res HTTP响应对象
+   */
   private handleHttpRequest(req: any, res: any): void {
-    // 设置CORS头
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // 设置CORS头，允许跨域访问
+    res.setHeader('Access-Control-Allow-Origin', '*'); // 允许所有域名访问
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); // 允许的HTTP方法
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type'); // 允许的请求头
 
+    // 处理预检请求（OPTIONS）
     if (req.method === 'OPTIONS') {
       res.writeHead(200);
       res.end();
       return;
     }
 
+    // 处理反馈提交请求
     if (req.method === 'POST' && req.url === '/feedback') {
       let body = '';
+      
+      // 接收请求体数据
       req.on('data', (chunk: Buffer) => {
         body += chunk.toString();
       });
 
+      // 请求体接收完成后处理
       req.on('end', async () => {
         try {
-          const feedbackData = JSON.parse(body);
-          await this.handleFeedbackSubmission(feedbackData);
+          const feedbackData = JSON.parse(body); // 解析JSON数据
+          await this.handleFeedbackSubmission(feedbackData); // 处理反馈提交
           
+          // 返回成功响应
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true }));
         } catch (error) {
+          // 处理错误情况
           console.error('Error processing feedback:', error);
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Invalid JSON' }));
         }
       });
     } else if (req.method === 'GET' && req.url === '/status') {
+      // 处理状态查询请求
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         status: 'running',
@@ -1267,4 +1347,4 @@ export class ChromeFeedbackManager {
       );
     });
   }
-} 
+}

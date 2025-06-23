@@ -34,12 +34,15 @@ class ElementInspector {
                     sendResponse({ success: true, message: 'Element inspection stopped' });
                     return true; // 保持消息通道开放
                 } else {
-                    console.log('❓ Element Inspector: 未知消息类型:', message.action);
-                    sendResponse({ success: false, message: 'Unknown action: ' + message.action });
+                    // 对于不是element-inspector处理的消息，不发送响应
+                    // 让其他监听器处理
+                    console.log('❓ Element Inspector: 消息不由此处理:', message.action);
+                    return false; // 不处理此消息，让其他监听器处理
                 }
             } catch (error) {
                 console.error('❌ Element Inspector: 处理消息时出错:', error);
                 sendResponse({ success: false, message: 'Error: ' + error.message });
+                return true;
             }
         });
         
@@ -798,4 +801,4 @@ class ElementInspector {
 // 初始化元素检查器
 if (!window.mcpElementInspector) {
     window.mcpElementInspector = new ElementInspector();
-} 
+}

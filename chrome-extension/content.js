@@ -63,7 +63,7 @@ class MCPFeedbackContent {
                         break;
                         
                     case 'startElementInspection':
-                        console.error('Starting element inspection...');
+                        console.log('Starting element inspection...');
                         this.startElementInspection();
                         sendResponse({ success: true });
                         break;
@@ -72,6 +72,18 @@ class MCPFeedbackContent {
                         console.log('Stopping element inspection...');
                         this.stopElementInspection();
                         sendResponse({ success: true });
+                        break;
+                        
+                    case 'startElementCapture':
+                        console.log('Content script: startElementCapture消息已收到，但由element-inspector.js处理');
+                        // 这个消息由element-inspector.js处理，content.js不需要处理
+                        // 但我们需要返回一个响应以避免错误
+                        sendResponse({ success: true, message: 'Message forwarded to element-inspector' });
+                        break;
+                        
+                    case 'stopElementCapture':
+                        console.log('Content script: stopElementCapture消息已收到，但由element-inspector.js处理');
+                        sendResponse({ success: true, message: 'Message forwarded to element-inspector' });
                         break;
                         
                     case 'hideFeedbackForm':
