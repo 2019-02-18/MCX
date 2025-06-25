@@ -59,6 +59,8 @@ class ElementInspector {
         
         this.isActive = true;
         this.createOverlay();
+        // 先移除可能存在的旧事件监听器，防止重复绑定
+        this.removeEventListeners();
         this.addEventListeners();
         this.originalCursor = document.body.style.cursor;
         document.body.style.cursor = 'crosshair';
@@ -703,51 +705,205 @@ class ElementInspector {
 
     async captureElement(element) {
         try {
-            console.log('🎯 开始捕获元素...');
-            
-            // 移除工具栏
+            // 移除工具栏和停止检查
             this.removeCaptureToolbar();
+            this.stopInspection();
             
             // 获取元素信息
             const elementInfo = this.getElementInfo(element);
-            console.log('📋 元素信息已获取:', elementInfo);
             
             // 捕获截图
-            console.log('📷 请求截图...');
             const screenshot = await this.takeElementScreenshot(element);
-            console.log('✅ 截图获取成功，数据长度:', screenshot.length);
             
-            // 停止检查模式
-            this.stopInspection();
-            
-            // 发送结果到扩展
-            console.log('📤 发送截图数据到扩展...');
-            chrome.runtime.sendMessage({
-                action: 'elementCaptured',
-                data: {
-                    elementInfo: elementInfo,
-                    screenshot: screenshot
+            if (screenshot && screenshot.dataUrl) {
+                console.log('✅ 截图成功，准备发送到sidepanel和复制到剪切板');
+                console.log('📸 截图数据长度:', screenshot.dataUrl.length);
+                
+                // 方案1：发送到sidepanel
+                try {
+                    chrome.runtime.sendMessage({
+                        action: 'elementCaptured',
+                        data: {
+                            elementInfo: elementInfo,
+                            screenshot: screenshot.dataUrl
+                        }
+                    }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            console.error('发送到sidepanel失败:', chrome.runtime.lastError);
+                        } else {
+                            console.log('✅ 数据已发送到sidepanel，响应:', response);
+                        }
+                    });
+                } catch (error) {
+                    console.error('发送消息失败:', error);
                 }
-            }, (response) => {
-                if (response && response.success) {
-                    console.log('✅ 截图数据发送成功');
-                } else {
-                    console.error('❌ 截图数据发送失败:', response);
-                }
-            });
-            
-            console.log('✅ 元素捕获流程完成');
-            
+                
+                // 方案2：立即复制到剪切板（独立执行，不依赖sidepanel结果）
+                console.log('🔄 开始复制截图到剪切板...');
+                this.copyToClipboard(screenshot.dataUrl);
+                
+            } else {
+                console.error('❌ 截图失败，screenshot对象:', screenshot);
+                this.showNotification('截图失败，请重试', 'error');
+            }
         } catch (error) {
-            console.error('❌ 元素捕获失败:', error);
-            this.stopInspection();
-            
-            chrome.runtime.sendMessage({
-                action: 'elementInspectionStopped',
-                reason: 'capture_failed',
-                error: error.message
-            });
+            console.error('捕获元素失败:', error);
+            this.showNotification('捕获失败: ' + error.message, 'error');
         }
+    }
+
+    // 复制截图到剪切板
+    async copyToClipboard(dataUrl) {
+        console.log('📋 开始执行copyToClipboard方法');
+        console.log('📋 数据URL前缀:', dataUrl.substring(0, 50));
+        
+        try {
+            console.log('📋 步骤1: 检查navigator.clipboard支持');
+            if (!navigator.clipboard) {
+                throw new Error('浏览器不支持剪切板API');
+            }
+
+            console.log('📋 步骤2: 将base64转换为blob');
+            const response = await fetch(dataUrl);
+            const blob = await response.blob();
+            console.log('📋 Blob创建成功，类型:', blob.type, '大小:', blob.size);
+            
+            console.log('📋 步骤3: 写入剪切板');
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    [blob.type]: blob
+                })
+            ]);
+            
+            console.log('✅ 截图已成功复制到剪切板');
+            this.showNotification('✅ 截图已复制到剪切板，可以直接粘贴使用', 'success');
+        } catch (error) {
+            console.error('❌ 复制到剪切板失败:', error);
+            console.error('❌ 错误详情:', error.message);
+            console.error('❌ 错误堆栈:', error.stack);
+            
+            // 显示错误通知
+            this.showNotification('截图完成，但复制到剪切板失败: ' + error.message, 'warning');
+            
+            // 尝试备用方案：创建下载链接
+            try {
+                console.log('📋 尝试备用方案：创建下载链接');
+                const link = document.createElement('a');
+                link.href = dataUrl;
+                link.download = `element-screenshot-${Date.now()}.png`;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                
+                // 显示下载提示
+                this.showNotification('已为您准备下载链接，请点击保存截图', 'info');
+                
+                // 自动点击下载（某些浏览器会阻止）
+                setTimeout(() => {
+                    link.click();
+                    document.body.removeChild(link);
+                }, 100);
+                
+            } catch (downloadError) {
+                console.error('❌ 下载备用方案也失败:', downloadError);
+            }
+        }
+    }
+
+    // 显示通知消息
+    showNotification(message, type = 'info') {
+        // 移除之前的通知
+        const existingNotification = document.getElementById('mcp-notification');
+        if (existingNotification) {
+            existingNotification.remove();
+        }
+
+        const notification = document.createElement('div');
+        notification.id = 'mcp-notification';
+        
+        // 根据类型设置颜色
+        let backgroundColor, borderColor, textColor;
+        switch(type) {
+            case 'success':
+                backgroundColor = '#4CAF50';
+                borderColor = '#45a049';
+                textColor = '#ffffff';
+                break;
+            case 'error':
+                backgroundColor = '#f44336';
+                borderColor = '#da190b';
+                textColor = '#ffffff';
+                break;
+            case 'warning':
+                backgroundColor = '#ff9800';
+                borderColor = '#e68900';
+                textColor = '#ffffff';
+                break;
+            default:
+                backgroundColor = '#2196F3';
+                borderColor = '#0b7dda';
+                textColor = '#ffffff';
+        }
+        
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${backgroundColor};
+            color: ${textColor};
+            padding: 12px 16px;
+            border-radius: 4px;
+            border: 1px solid ${borderColor};
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 1000002;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            max-width: 300px;
+            word-wrap: break-word;
+            animation: slideInFromRight 0.3s ease-out;
+        `;
+        
+        // 添加动画样式
+        if (!document.getElementById('mcp-notification-styles')) {
+            const styles = document.createElement('style');
+            styles.id = 'mcp-notification-styles';
+            styles.textContent = `
+                @keyframes slideInFromRight {
+                    from {
+                        transform: translateX(100%);
+                        opacity: 0;
+                    }
+                    to {
+                        transform: translateX(0);
+                        opacity: 1;
+                    }
+                }
+                @keyframes fadeOut {
+                    from {
+                        opacity: 1;
+                    }
+                    to {
+                        opacity: 0;
+                    }
+                }
+            `;
+            document.head.appendChild(styles);
+        }
+        
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        
+        // 3秒后自动消失
+        setTimeout(() => {
+            if (notification && notification.parentNode) {
+                notification.style.animation = 'fadeOut 0.3s ease-out';
+                setTimeout(() => {
+                    if (notification && notification.parentNode) {
+                        notification.remove();
+                    }
+                }, 300);
+            }
+        }, 3000);
     }
 
     getElementInfo(element) {
@@ -767,33 +923,50 @@ class ElementInspector {
     }
 
     async takeElementScreenshot(element) {
-        console.log('📸 takeElementScreenshot: 开始请求截图...');
-        
-        // 这里我们请求background script来截图
         return new Promise((resolve, reject) => {
             const elementRect = element.getBoundingClientRect();
-            console.log('📐 元素位置信息:', elementRect);
             
-            chrome.runtime.sendMessage({
-                action: 'captureElementScreenshot',
-                elementRect: elementRect
-            }, (response) => {
-                console.log('📨 收到background响应:', response);
-                
-                if (chrome.runtime.lastError) {
-                    console.error('❌ Chrome runtime 错误:', chrome.runtime.lastError);
-                    reject(new Error(chrome.runtime.lastError.message));
-                    return;
+            console.log('📸 Element Inspector: 发送截图请求');
+            console.log('📸 元素位置:', elementRect);
+            
+            // 通过postMessage与content script通信
+            window.postMessage({
+                type: 'MCP_ELEMENT_SCREENSHOT_REQUEST',
+                data: {
+                    action: 'takeElementScreenshot',
+                    elementRect: elementRect,
+                    requestId: Date.now() + '_' + Math.random()
                 }
-                
-                if (response && response.success) {
-                    console.log('✅ 截图成功，数据大小:', response.screenshot ? response.screenshot.length : 'undefined');
-                    resolve(response.screenshot);
-                } else {
-                    console.error('❌ 截图失败:', response?.error || '未知错误');
-                    reject(new Error(response?.error || '截图失败'));
+            }, '*');
+            
+            // 监听来自content script的响应
+            const responseHandler = (event) => {
+                if (event.data && event.data.type === 'MCP_ELEMENT_SCREENSHOT_RESPONSE') {
+                    window.removeEventListener('message', responseHandler);
+                    
+                    const response = event.data.response;
+                    console.log('📸 Content Script 响应:', response);
+                    
+                    if (response && response.success && response.screenshot) {
+                        console.log('✅ 截图响应有效，数据长度:', response.screenshot.length);
+                        resolve({
+                            dataUrl: response.screenshot
+                        });
+                    } else {
+                        console.error('❌ 截图响应无效:', response);
+                        const errorMsg = response?.error || '截图响应格式错误';
+                        reject(new Error(`截图失败: ${errorMsg}`));
+                    }
                 }
-            });
+            };
+            
+            window.addEventListener('message', responseHandler);
+            
+            // 设置超时
+            setTimeout(() => {
+                window.removeEventListener('message', responseHandler);
+                reject(new Error('截图请求超时'));
+            }, 10000);
         });
     }
 }

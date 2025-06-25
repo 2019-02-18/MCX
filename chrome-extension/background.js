@@ -96,26 +96,42 @@ class MCPFeedbackBackground {
                     });
                     break;
                     
+                case 'takeElementScreenshot':
+                case 'captureElementScreenshot':
+                    this.takeElementScreenshot()
+                        .then(result => sendResponse(result))
+                        .catch(error => {
+                            console.error('截图失败:', error);
+                            sendResponse({ success: false, error: error.message });
+                        });
+                    return true;
+                    
                 case 'elementCaptured':
-                    // 转发元素捕获消息到侧边栏
-                    console.log('📤 Background: 收到elementCaptured消息，开始转发到侧边栏');
-                    console.log('🖼️ Background: 截图数据长度:', request.data?.screenshot?.length || 'undefined');
+                    console.log('Background: 收到elementCaptured消息');
+                    console.log('Background: 截图数据长度:', request.data?.screenshot?.length || 0);
                     
-                    this.broadcastToSidepanels({
-                        action: 'elementCaptured',
-                        data: request.data
-                    });
-                    
-                    // 同时尝试直接向侧边栏发送消息
-                    chrome.runtime.sendMessage({
-                        action: 'elementCaptured',
-                        data: request.data
+                    // 直接存储到chrome.storage.local，确保sidepanel能接收到
+                    chrome.storage.local.set({
+                        elementCapturedData: {
+                            ...request.data,
+                            timestamp: Date.now(),
+                            action: 'elementCaptured'
+                        }
+                    }).then(() => {
+                        console.log('✅ Background: 截图数据已存储到storage');
+                        
+                        // 尝试直接通知所有sidepanel
+                        this.notifyAllSidepanels({
+                            action: 'elementCaptured',
+                            data: request.data
+                        });
+                        
+                        sendResponse({ success: true });
                     }).catch((error) => {
-                        console.log('📤 Background: 直接发送到侧边栏失败:', error.message);
+                        console.error('Background: 存储失败:', error);
+                        sendResponse({ success: false, error: error.message });
                     });
-                    
-                    sendResponse({ success: true });
-                    break;
+                    return true;
                     
                 case 'elementInspectionStopped':
                     // 通知侧边栏元素检查已停止
@@ -137,20 +153,6 @@ class MCPFeedbackBackground {
                     });
                     sendResponse({ success: true });
                     break;
-                    
-                case 'captureElementScreenshot':
-                    // 捕获当前标签页截图
-                    console.log('📤 Background: 收到截图请求，开始处理...');
-                    this.captureTabScreenshot()
-                        .then(result => {
-                            console.log('📤 Background: 截图处理完成，发送响应:', result.success);
-                            sendResponse(result);
-                        })
-                        .catch(error => {
-                            console.error('📤 Background: 截图处理失败:', error);
-                            sendResponse({ success: false, error: error.message });
-                        });
-                    return true;
                     
                 default:
                     console.warn('未知的消息类型:', request.action);
@@ -478,23 +480,17 @@ class MCPFeedbackBackground {
         });
     }
     
-    broadcastToSidepanels(message) {
-        console.log('📤 Background: broadcastToSidepanels 发送消息:', message.action);
-        
-        // 方法1: 使用 chrome.runtime.sendMessage (用于sidepanel)
-        chrome.runtime.sendMessage(message).catch((error) => {
-            console.log('📤 Background: sendMessage 失败:', error.message);
-        });
-        
-        // 方法2: 通过存储进行通信 (备用方案)
-        chrome.storage.local.set({
-            lastMessage: {
-                ...message,
-                timestamp: Date.now()
-            }
-        }).catch((error) => {
-            console.error('📤 Background: 存储消息失败:', error);
-        });
+    async broadcastToSidepanels(message) {
+        try {
+            await chrome.storage.local.set({
+                lastMessage: {
+                    ...message,
+                    timestamp: Date.now()
+                }
+            });
+        } catch (error) {
+            console.error('存储消息失败:', error);
+        }
     }
 
     async broadcastToContentScripts(message) {
@@ -518,19 +514,19 @@ class MCPFeedbackBackground {
         }
     }
     
-    // 捕获标签页截图
-    async captureTabScreenshot() {
+    // 捕获元素截图
+    async takeElementScreenshot() {
         try {
-            console.log('🔥 Background: 开始捕获标签页截图...');
+            console.log('Background: 开始捕获元素截图');
+            
             // 获取当前活动标签页
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             
             if (!tab) {
-                console.log('❌ Background: 无法获取当前标签页');
                 throw new Error('无法获取当前标签页');
             }
             
-            console.log('📄 Background: 找到标签页:', tab.id, tab.url);
+            console.log('Background: 找到活动标签页:', tab.id);
             
             // 捕获可见区域截图
             const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
@@ -538,20 +534,26 @@ class MCPFeedbackBackground {
                 quality: 90
             });
             
-            console.log('✅ Background: 截图成功，数据长度:', dataUrl.length);
-            console.log('🖼️ Background: 数据前缀:', dataUrl.substring(0, 50));
+            console.log('Background: 截图捕获成功，数据长度:', dataUrl.length);
             
             return {
                 success: true,
-                screenshot: dataUrl
+                screenshot: dataUrl,
+                tabId: tab.id,
+                timestamp: Date.now()
             };
         } catch (error) {
-            console.log('💥 Background: 捕获截图失败:', error);
+            console.error('Background: 截图失败:', error.message);
             return {
                 success: false,
                 error: error.message
             };
         }
+    }
+    
+    // 捕获标签页截图 (保留兼容性)
+    async captureTabScreenshot() {
+        return this.takeElementScreenshot();
     }
     
     // 处理自动化命令
@@ -616,6 +618,30 @@ class MCPFeedbackBackground {
             success: true,
             data: mcpInfo
         };
+    }
+
+    // 通知所有sidepanel
+    notifyAllSidepanels(message) {
+        console.log('Background: 尝试通知所有sidepanel');
+        
+        // 方法1: 通过storage
+        chrome.storage.local.set({
+            lastMessage: {
+                ...message,
+                timestamp: Date.now()
+            }
+        }).then(() => {
+            console.log('Background: 消息已通过storage发送');
+        }).catch(error => {
+            console.error('Background: storage通知失败:', error);
+        });
+        
+        // 方法2: 尝试直接发送到runtime
+        try {
+            chrome.runtime.sendMessage(message);
+        } catch (error) {
+            console.log('Background: runtime消息发送失败 (正常现象)');
+        }
     }
 }
 

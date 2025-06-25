@@ -136,13 +136,25 @@ class MCPFeedbackSidePanel {
             this.handleMessage(message, sender, sendResponse);
         });
         
-        // 添加存储监听器作为备用消息传递方案
+        // 存储监听器 - 接收来自background的消息
         chrome.storage.onChanged.addListener((changes, namespace) => {
-            if (changes.lastMessage && namespace === 'local') {
-                const message = changes.lastMessage.newValue;
-                if (message && Date.now() - message.timestamp < 5000) { // 5秒内的消息
-                    console.log('📨 Sidepanel: 通过存储接收到消息:', message.action);
-                    this.handleMessage(message);
+            if (namespace === 'local') {
+                console.log('Sidepanel: storage变化', Object.keys(changes));
+                
+                // 处理elementCapturedData
+                if (changes.elementCapturedData && changes.elementCapturedData.newValue) {
+                    const data = changes.elementCapturedData.newValue;
+                    console.log('✅ Sidepanel: 收到elementCapturedData');
+                    this.handleElementCaptured(data);
+                }
+                
+                // 处理lastMessage (保持兼容性)
+                if (changes.lastMessage && changes.lastMessage.newValue) {
+                    const message = changes.lastMessage.newValue;
+                    if (message && Date.now() - message.timestamp < 5000) {
+                        console.log('Sidepanel: 收到lastMessage:', message.action);
+                        this.handleMessage(message);
+                    }
                 }
             }
         });
@@ -1179,7 +1191,10 @@ class MCPFeedbackSidePanel {
 
     // 更新图片预览
     updateImagePreviews() {
-        if (!this.imagePreviews) return;
+        if (!this.imagePreviews) {
+            console.error('❌ Sidepanel: imagePreviews 元素不存在');
+            return;
+        }
 
         this.imagePreviews.innerHTML = '';
         
@@ -1958,12 +1973,17 @@ class MCPFeedbackSidePanel {
     }
 
     handleMessage(message, sender, sendResponse) {
-        console.log('收到消息:', message);
+        console.log('🖼️ Sidepanel: 收到消息:', message);
+        console.log('🖼️ Sidepanel: 消息发送者:', sender);
         
         switch (message.action) {
             case 'elementCaptured':
+                console.log('🖼️ Sidepanel: 处理elementCaptured消息');
                 if (message.data) {
+                    console.log('🖼️ Sidepanel: 消息数据存在，调用handleElementCaptured');
                     this.handleElementCaptured(message.data);
+                } else {
+                    console.error('🖼️ Sidepanel: elementCaptured消息缺少data字段');
                 }
                 break;
                 
@@ -1980,8 +2000,15 @@ class MCPFeedbackSidePanel {
                 }
                 break;
                 
+            case 'elementInspectionStopped':
+                console.log('🛑 Sidepanel: 元素检查已停止，原因:', message.reason);
+                if (message.reason === 'capture_failed') {
+                    this.showNotification('❌ 截图捕获失败，请重试', 'error');
+                }
+                break;
+                
             default:
-                console.log('未知消息类型:', message.action);
+                console.log('🖼️ Sidepanel: 未知消息类型:', message.action);
         }
         
         if (sendResponse) {
@@ -1991,32 +2018,45 @@ class MCPFeedbackSidePanel {
 
     // 处理元素捕获结果（仅处理截图）
     handleElementCaptured(data) {
-        console.log('🖼️ Sidepanel: handleElementCaptured 被调用');
-        console.log('📋 Sidepanel: 收到数据:', data);
+        console.log('🖼️ Sidepanel: handleElementCaptured被调用');
+        console.log('🖼️ Sidepanel: 数据结构:', typeof data, data ? Object.keys(data) : 'null');
         
-        if (data && data.screenshot) {
-            console.log('✅ Sidepanel: 发现截图数据，长度:', data.screenshot.length);
-            
-            const imageData = {
-                id: Date.now().toString(),
-                name: `element-capture-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`,
-                data: data.screenshot,
-                size: data.screenshot.length
-            };
-            
-            console.log('📁 Sidepanel: 创建图片数据对象:', imageData.name);
-            
-            this.selectedFiles.push(imageData);
-            this.updateImagePreviews();
-            this.showNotification('元素截图已添加到文件列表', 'success');
-            
-            console.log('✅ Sidepanel: 截图已成功添加到文件列表，当前文件数:', this.selectedFiles.length);
-        } else {
-            console.error('❌ Sidepanel: 未找到截图数据');
-            console.log('📋 Sidepanel: 完整数据结构:', JSON.stringify(data, null, 2));
+        if (!data) {
+            console.error('❌ Sidepanel: 数据为空');
+            return;
         }
         
-        // 移除自动填充元素信息的功能，这由 fillFeedbackText 消息单独处理
+        let screenshot = data.screenshot;
+        if (!screenshot) {
+            console.error('❌ Sidepanel: 没有screenshot字段');
+            console.log('❌ Sidepanel: 可用字段:', Object.keys(data));
+            return;
+        }
+        
+        if (typeof screenshot !== 'string' || !screenshot.startsWith('data:image/')) {
+            console.error('❌ Sidepanel: screenshot格式无效');
+            console.log('❌ Sidepanel: screenshot类型:', typeof screenshot);
+            console.log('❌ Sidepanel: screenshot前缀:', screenshot ? screenshot.substring(0, 20) : 'null');
+            return;
+        }
+        
+        console.log('✅ Sidepanel: 截图数据有效，长度:', screenshot.length);
+        
+        // 添加到文件列表
+        const imageData = {
+            id: Date.now().toString(),
+            name: `element-capture-${Date.now()}.png`,
+            data: screenshot,
+            size: screenshot.length
+        };
+        
+        this.selectedFiles.push(imageData);
+        console.log('✅ Sidepanel: 图片已添加到selectedFiles，当前数量:', this.selectedFiles.length);
+        
+        this.updateImagePreviews();
+        console.log('✅ Sidepanel: 图片预览已更新');
+        
+        this.showNotification('✅ 元素截图已保存到图片列表', 'success');
     }
 
     // 新增：智能表单填写

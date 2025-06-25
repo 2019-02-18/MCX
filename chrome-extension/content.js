@@ -131,6 +131,14 @@ class MCPFeedbackContent {
             }
         });
         
+        // 监听来自element-inspector.js的postMessage
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'MCP_ELEMENT_SCREENSHOT_REQUEST') {
+                console.log('📸 Content: 收到element-inspector的截图请求');
+                this.handleElementScreenshotRequest(event.data.data);
+            }
+        });
+        
         // 监听键盘事件
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         console.log('MCP Feedback Content Script: Listeners initialized successfully');
@@ -924,15 +932,23 @@ class MCPFeedbackContent {
             
             // 使用chrome.tabs API捕获整个页面截图
             return new Promise((resolve) => {
-                console.log('发送截图请求到background script...');
+                console.log('📸 Content: 发送截图请求到background script...');
                 chrome.runtime.sendMessage({
-                    action: 'captureElementScreenshot'
+                    action: 'takeElementScreenshot'
                 }, (response) => {
+                    if (chrome.runtime.lastError) {
+                        console.error('❌ Content: Chrome runtime 错误:', chrome.runtime.lastError);
+                        resolve(null);
+                        return;
+                    }
+                    
+                    console.log('📸 Content: Background 响应:', response);
+                    
                     if (response && response.success && response.screenshot) {
-                        console.log('截图成功，数据长度:', response.screenshot.length);
+                        console.log('✅ Content: 截图成功，数据长度:', response.screenshot.length);
                         resolve(response.screenshot);
                     } else {
-                        console.error('截图失败或无数据:', response?.error || '未知错误');
+                        console.error('❌ Content: 截图失败或无数据:', response?.error || '未知错误');
                         resolve(null);
                     }
                 });
@@ -2939,23 +2955,26 @@ class MCPFeedbackContent {
 
     // 截图
     async automateTakeScreenshot(data) {
-        console.log('请求截图');
+        console.log('📸 请求截图');
 
         // 通过background script请求截图
         return new Promise((resolve, reject) => {
             chrome.runtime.sendMessage({
-                action: 'captureElementScreenshot'
+                action: 'takeElementScreenshot'
             }, (response) => {
                 if (chrome.runtime.lastError) {
+                    console.error('❌ 自动截图失败:', chrome.runtime.lastError.message);
                     reject(new Error(chrome.runtime.lastError.message));
-                } else if (response.success) {
+                } else if (response && response.success) {
+                    console.log('✅ 自动截图成功');
                     resolve({
                         success: true,
                         screenshot: response.screenshot,
                         message: 'Screenshot captured successfully'
                     });
                 } else {
-                    reject(new Error(response.error || 'Screenshot failed'));
+                    console.error('❌ 自动截图失败:', response?.error || '未知错误');
+                    reject(new Error(response?.error || 'Screenshot failed'));
                 }
             });
         });
@@ -2981,6 +3000,40 @@ class MCPFeedbackContent {
         }
 
         throw new Error(`Element not found within ${timeout}ms: ${selector}`);
+    }
+
+    // 处理来自element-inspector.js的截图请求
+    async handleElementScreenshotRequest(data) {
+        try {
+            console.log('📸 Content: 处理截图请求:', data);
+            
+            // 发送请求到background script
+            chrome.runtime.sendMessage({
+                action: data.action,
+                elementRect: data.elementRect
+            }, (response) => {
+                console.log('📸 Content: 收到background响应:', response);
+                
+                // 将响应发送回element-inspector.js
+                window.postMessage({
+                    type: 'MCP_ELEMENT_SCREENSHOT_RESPONSE',
+                    requestId: data.requestId,
+                    response: response
+                }, '*');
+            });
+        } catch (error) {
+            console.error('❌ Content: 处理截图请求失败:', error);
+            
+            // 发送错误响应
+            window.postMessage({
+                type: 'MCP_ELEMENT_SCREENSHOT_RESPONSE',
+                requestId: data.requestId,
+                response: {
+                    success: false,
+                    error: error.message
+                }
+            }, '*');
+        }
     }
 }
 
