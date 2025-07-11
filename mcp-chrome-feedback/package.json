@@ -1,6 +1,6 @@
 {
   "name": "mcp-chrome-feedback",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "MCP tool for interactive feedback collection through Chrome extension with AI integration",
   "main": "build/index.js",
   "type": "module",
