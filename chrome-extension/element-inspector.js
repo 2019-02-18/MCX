@@ -18,6 +18,8 @@ class ElementInspector {
     init() {
         console.log('🔧 Element Inspector: 正在初始化...');
         
+        this.mode = 'capture'; // 'capture' or 'interactive_locate'
+
         // 监听来自扩展的消息
         chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.log('📨 Element Inspector: 收到消息:', message.action);
@@ -25,14 +27,21 @@ class ElementInspector {
             try {
                 if (message.action === 'startElementCapture') {
                     console.log('▶️ Element Inspector: 处理启动元素捕获请求');
+                    this.mode = 'capture';
                     this.startInspection();
-                    sendResponse({ success: true, message: 'Element inspection started' });
-                    return true; // 保持消息通道开放
+                    sendResponse({ success: true, message: 'Element inspection started for capture' });
+                    return true;
+                } else if (message.action === 'startInteractiveInspection') {
+                    console.log('▶️ Element Inspector: 处理交互式定位请求');
+                    this.mode = 'interactive_locate';
+                    this.startInspection();
+                    sendResponse({ success: true, message: 'Interactive inspection started' });
+                    return true;
                 } else if (message.action === 'stopElementCapture') {
                     console.log('⏹️ Element Inspector: 处理停止元素捕获请求');
                     this.stopInspection();
                     sendResponse({ success: true, message: 'Element inspection stopped' });
-                    return true; // 保持消息通道开放
+                    return true;
                 } else {
                     console.log('❓ Element Inspector: 未知消息类型:', message.action);
                     sendResponse({ success: false, message: 'Unknown action: ' + message.action });
@@ -221,8 +230,77 @@ class ElementInspector {
         
         console.log('✅ 有效元素被点击，显示工具栏');
         
-        // 显示捕获工具栏
-        this.showCaptureToolbar(element);
+        // 根据模式决定行为
+        if (this.mode === 'interactive_locate') {
+            const selector = this.generateReliableSelector(element);
+            console.log(`✅ 交互式定位成功，选择器: ${selector}`);
+
+            // 发送消息回扩展
+            chrome.runtime.sendMessage({
+                action: 'interactiveElementSelected',
+                data: {
+                    selector: selector
+                }
+            });
+
+            // 立即停止检查
+            this.stopInspection();
+        } else {
+            // 默认行为是显示捕获工具栏
+            this.showCaptureToolbar(element);
+        }
+    }
+
+    generateReliableSelector(element) {
+        // 优先使用 'data-testid', 'data-cy'
+        for (const attr of ['data-testid', 'data-cy', 'data-test-id']) {
+            const value = element.getAttribute(attr);
+            if (value) {
+                return `[${attr}="${value}"]`;
+            }
+        }
+
+        // 其次使用 ID
+        if (element.id) {
+            // 确保ID在文档中是唯一的
+            if (document.querySelectorAll(`#${element.id}`).length === 1) {
+                return `#${element.id}`;
+            }
+        }
+
+        // 然后是 name 属性
+        if (element.name) {
+             const selector = `${element.tagName.toLowerCase()}[name="${element.name}"]`;
+             if (document.querySelectorAll(selector).length === 1) {
+                return selector;
+             }
+        }
+
+        // 最后回退到完整的CSS路径
+        let path = '';
+        let current = element;
+        while (current && current.nodeType === Node.ELEMENT_NODE) {
+            let selector = current.nodeName.toLowerCase();
+            if (current.id) {
+                selector += `#${current.id}`;
+                path = selector + ' > ' + path;
+                break;
+            } else {
+                let sibling = current;
+                let nth = 1;
+                while (sibling = sibling.previousElementSibling) {
+                    if (sibling.nodeName.toLowerCase() === selector) {
+                        nth++;
+                    }
+                }
+                if (nth > 1) {
+                    selector += `:nth-of-type(${nth})`;
+                }
+            }
+            path = selector + (path ? ' > ' + path : '');
+            current = current.parentNode;
+        }
+        return path.trim();
     }
 
     handleKeyDown(event) {

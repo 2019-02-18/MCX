@@ -347,32 +347,7 @@ const tools: Tool[] = [
       required: ['selector']
     }
   },
-  // 新增：智能表单分析
-  {
-    name: 'chrome_analyze_form_structure',
-    description: 'Analyze form structure and provide intelligent field mapping suggestions',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        formSelector: {
-          type: 'string',
-          description: 'CSS selector for the form to analyze (optional)',
-          default: 'form'
-        },
-        includeHiddenFields: {
-          type: 'boolean',
-          description: 'Whether to include hidden form fields',
-          default: false
-        },
-        framework: {
-          type: 'string',
-          enum: ['vue', 'react', 'angular', 'auto'],
-          description: 'Target framework for better analysis',
-          default: 'auto'
-        }
-      }
-    }
-  }
+  // 'chrome_analyze_form_structure' tool removed
 ];
 
 // 注册工具列表处理器
