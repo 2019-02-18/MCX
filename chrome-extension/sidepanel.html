@@ -707,6 +707,11 @@
                         <label for="serverUrl">MCP服务器地址:</label>
                         <input type="text" id="serverUrl" placeholder="MCP服务器地址" value="ws://127.0.0.1:8797">
                     </div>
+                    <div class="form-group">
+                        <label for="serviceSelector">选择MCP服务:</label>
+                        <div id="serviceSelectorContainer" style="margin-bottom: 10px;"></div>
+                        <button id="refreshServicesBtn" class="button button-secondary button-small" style="margin-bottom: 10px;">刷新服务列表</button>
+                    </div>
                     <div class="feedback-actions">
                         <button id="connectBtn" class="button">连接</button>
                         <button id="disconnectBtn" class="button button-secondary" disabled>断开</button>
